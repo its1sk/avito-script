@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Avito — скрыть продавцов + мои поиски
 // @namespace    avito-seller-blocker
-// @version      5.4
+// @version      5.5
 // @description  Скрытие продавцов, сохранённые поиски, стоп-слова, лента новых объявлений по всем поискам
 // @match        https://www.avito.ru/*
 // @match        https://m.avito.ru/*
@@ -1434,7 +1434,7 @@
   // Чистим ленту от лишнего. Непросмотренные объявления НЕ трогаем (раньше обрезали всё подряд до 400 —
   // и после долгого перерыва большая часть новых пропадала). Режем только просмотренные и скрытые фильтрами.
   // номер версии кода: вкладка со старой версией, увидев более новую, перестаёт проверять в фоне
-  const CODE_VER = 54;
+  const CODE_VER = 55;
   if (+GM_getValue('codeVer', 0) < CODE_VER) GM_setValue('codeVer', CODE_VER);
   const PENDING_MAX = 5000; // аварийный потолок для непросмотренных
   function trimFeed(feed) {
@@ -1704,13 +1704,21 @@
     return { text: got.text, blocked, diag: got.text && !blocked ? null : descDiag(res, html, got, it.url) };
   }
 
-  async function descRun() {
-    if (descRunning || feedRunning || mergeRunning || !loadOpts().desc) return 0;
-    if (document.visibilityState !== 'visible' && !loadOpts().hiddenTab) return 0;
-    const st = loadDescSt();
-    if (Date.now() < (st.pauseUntil || 0) || Date.now() - +GM_getValue('descLock', 0) < 30000) return 0; // пауза или качает другая вкладка
-    const todo = descCandidates().slice(0, DESC.perRun);
-    if (!todo.length) return 0;
+  // fast — ускоренный режим по кнопке «⚡»: вся очередь, по 2 страницы одновременно, короткие паузы,
+  // { stop() — нажали «Остановить», onProgress(n, всего, с описанием) }
+  async function descRun(fast = null) {
+    const none = { n: 0, ok: 0, total: 0 };
+    if (fast) {
+      for (let t = 0; descRunning && t < 140; t++) await sleep(500); // ждём обычную загрузку, если она идёт
+      if (descRunning || mergeRunning) return none;
+    } else {
+      if (descRunning || feedRunning || mergeRunning || !loadOpts().desc) return none;
+      if (document.visibilityState !== 'visible' && !loadOpts().hiddenTab) return none;
+      const st = loadDescSt();
+      if (Date.now() < (st.pauseUntil || 0) || Date.now() - +GM_getValue('descLock', 0) < 30000) return none; // пауза или качает другая вкладка
+    }
+    const todo = fast ? descCandidates() : descCandidates().slice(0, DESC.perRun);
+    if (!todo.length) return none;
     descRunning = true;
     const got = {};
     let n = 0, ok = 0, fail = 0, blocked = false, lastFail = '', failRow = loadDescSt().failRow || 0;
@@ -1741,21 +1749,32 @@
       updateFabBadge();
       if (feedUi) feedUi.partial();
     };
-    try {
-      for (const it of todo) {
-        if (feedRunning || mergeRunning) break; // проверке поисков не мешаем
+    const queue = [...todo];
+    let stopAll = false;
+    const worker = async () => {
+      while (queue.length && !stopAll) {
+        if (mergeRunning || (fast && fast.stop())) { stopAll = true; break; }
+        if (feedRunning) { // идёт проверка поисков: обычный режим уступает ей, ускоренный ждёт
+          if (!fast) { stopAll = true; break; }
+          await sleep(2000); continue;
+        }
+        const it = queue.shift();
         GM_setValue('descLock', String(Date.now()));
         let r;
         try { r = await descFetch(it); } catch { continue; } // сеть — попробуем в следующий раз
         if (r.diag) diags.push(r.diag);
-        if (r.blocked) { blocked = true; break; }
+        if (r.blocked) { blocked = true; stopAll = true; break; }
         const text = cleanDesc(r.text);
         got[it.id] = { fullDesc: text, descAt: Date.now() };
         if (text) { ok++; failRow = 0; } else { fail++; lastFail = it.url; failRow++; }
-        if (failRow >= 8) break; // описание раз за разом не находится — не тратим запросы, ждём разбора
-        if (++n % 4 === 0) save();
-        await sleep(DESC.gap + Math.random() * 1500);
+        if (failRow >= 8) { stopAll = true; break; } // описание раз за разом не находится — не тратим запросы, ждём разбора
+        if (++n % (fast ? 12 : 4) === 0) save();
+        if (fast) fast.onProgress(n, todo.length, ok);
+        await sleep(fast ? 600 + Math.random() * 600 : DESC.gap + Math.random() * 1500);
       }
+    };
+    try {
+      await Promise.all(Array.from({ length: fast ? 2 : 1 }, (_, i) => sleep(i * 400).then(worker)));
     } finally {
       save();
       const st2 = loadDescSt();
@@ -1767,7 +1786,37 @@
       GM_setValue('descLock', '0');
       descRunning = false;
     }
-    return n;
+    return { n, ok, total: todo.length, blocked, stuck: failRow >= 8 };
+  }
+  const fmtLeft = (sec) => (sec < 60 ? `${Math.max(1, sec)} с` : `${Math.round(sec / 60)} мин`);
+  async function descFastUi() {
+    if (!loadOpts().desc) {
+      if (!confirm('Загрузка описаний выключена в ⚙️. Включить и загрузить?')) return;
+      saveOpt('desc', true);
+    }
+    const total = descCandidates().length;
+    if (!total) { alert('Очередь пуста: у всех подходящих вещей описания уже есть.'); return; }
+    let stop = false, line, btn;
+    modal('⚡ Загружаю описания', (box) => {
+      line = el('div', null, `В очереди ${total}. Начинаю…`);
+      const hint = el('div', null, 'По 2 страницы одновременно — в несколько раз быстрее обычного. Если Авито попросит паузу, остановлюсь сам. ' +
+        'Окно можно закрыть — загрузка продолжится, лента обновляется по ходу.');
+      hint.style.cssText = 'color:#777;font-size:12px;margin-top:6px';
+      btn = mbtn('⏹ Остановить');
+      btn.onclick = () => { stop = true; btn.disabled = true; btn.textContent = 'Останавливаю…'; };
+      box.append(line, hint, btn);
+    });
+    const t0 = Date.now();
+    if (descRunning) line.textContent = 'Жду, пока закончится текущая загрузка…';
+    const r = await descRun({ stop: () => stop, onProgress: (n, tot, ok) => {
+      line.textContent = `Загружено ${n} из ${tot} (с описанием ${ok}) · осталось ~${fmtLeft(Math.round((Date.now() - t0) / n * (tot - n) / 1000))}`;
+    } });
+    line.textContent = r.blocked ? `⏸ Авито попросил паузу — остановился. Загружено ${r.n} из ${r.total}. Остальное скрипт догрузит сам позже.`
+      : r.stuck ? '❌ Описание не находится на страницах. Нажмите ⚙️ → «🔬 Проверить загрузку описания» и пришлите скриншот.'
+      : !r.total ? 'Не получилось начать: идёт другая загрузка или объединение поисков. Попробуйте через минуту.'
+      : `${stop ? '⏹ Остановлено' : '✅ Готово'}: загружено ${r.n} из ${r.total}, с описанием ${r.ok}.`;
+    btn.disabled = false; btn.textContent = 'Закрыть';
+    btn.onclick = () => document.getElementById('ams-modal')?.remove();
   }
   if (loadDescSt().v !== 54) saveDescSt({ v: 54, pauseUntil: 0, stuck: 0, failRow: 0, lastPause: 0 }); // паузы от анонимных запросов — сбрасываем
   setInterval(() => { descRun(); }, 45000);
@@ -1824,11 +1873,12 @@
             'Сделайте скриншот этого окна и пришлите разработчику (или «📊 Файл для анализа» — там то же самое подробнее).');
         }
       };
+      const fastB = mbtn('⚡ Загрузить описания сейчас'); fastB.onclick = () => { close(); descFastUi(); };
       const rep = mbtn('📊 Файл для анализа пали'); rep.onclick = () => { close(); exportPalReportUi(); };
       const ok = mbtn('Готово', true); ok.onclick = close;
       const keys = el('div', null, 'Клавиши в ленте (ПК): J / K — следующее / предыдущее, O или Enter — открыть, X — скрыть, F — отложить.');
       keys.style.cssText = 'color:#555;font-size:12px;margin-top:6px';
-      box.append(keys, test, probe, rep, ok);
+      box.append(keys, test, probe, fastB, rep, ok);
     });
   }
 
@@ -2367,6 +2417,8 @@
         box.append(bAll);
       }
       box.append(el('span', null, descStatus()));
+      const dq = descCandidates().length;
+      if (dq) { const bFast = el('button', null, `⚡ Загрузить описания сейчас (${dq})`); bFast.onclick = descFastUi; box.append(bFast); }
       const nm = Object.keys(loadMissedRO()).length, nw = Object.keys(loadMarks(WRONG_KEY)).length;
       const bRep = el('button', null, `📊 Файл для анализа (паль: ${nm}, не паль: ${nw})`);
       bRep.title = 'Отмечайте «🇨🇳 Паль» на пропущенной пали и «✅ Не паль» на ошибках, потом сохраните файл и пришлите его разработчику';
