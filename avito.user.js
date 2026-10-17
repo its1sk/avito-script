@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Avito — скрыть продавцов + мои поиски
 // @namespace    avito-seller-blocker
-// @version      5.2
+// @version      5.3
 // @description  Скрытие продавцов, сохранённые поиски, стоп-слова, лента новых объявлений по всем поискам
 // @match        https://www.avito.ru/*
 // @match        https://m.avito.ru/*
@@ -1434,7 +1434,7 @@
   // Чистим ленту от лишнего. Непросмотренные объявления НЕ трогаем (раньше обрезали всё подряд до 400 —
   // и после долгого перерыва большая часть новых пропадала). Режем только просмотренные и скрытые фильтрами.
   // номер версии кода: вкладка со старой версией, увидев более новую, перестаёт проверять в фоне
-  const CODE_VER = 52;
+  const CODE_VER = 53;
   if (+GM_getValue('codeVer', 0) < CODE_VER) GM_setValue('codeVer', CODE_VER);
   const PENDING_MAX = 5000; // аварийный потолок для непросмотренных
   function trimFeed(feed) {
@@ -1641,31 +1641,59 @@
     while (j < html.length && html[j] !== '"') j += html[j] === '\\' ? 2 : 1;
     try { return JSON.parse('"' + html.slice(i, j) + '"'); } catch { return ''; }
   }
-  function extractDesc(html, id) {
-    let m = html.match(/<div[^>]*(?:data-marker="item-view\/item-description"|itemprop="description")[^>]*>([\s\S]{0,30000}?)<\/div>/);
-    if (m) { const t = htmlToText(m[1]); if (t.length >= 15) return t; }
-    // JSON страницы: "description":"…" рядом с номером этого объявления (не похожих)
+  // Где лежит описание, на www и m.avito.ru может отличаться — пробуем по очереди:
+  // разметка → JSON страницы (как есть, экранированный в строке, в &quot; или %22) → og:description
+  const decodeEnt = (t) => t.replace(/&quot;/g, '"').replace(/&#0?39;|&apos;/g, "'").replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&amp;/g, '&');
+  function jsonLayers(html) {
+    const out = [html];
+    if (html.includes('&quot;description&quot;')) out.push(decodeEnt(html));
+    if (html.includes('\\"description\\"')) out.push(html.replace(/\\\\/g, '\u0001').replace(/\\"/g, '"').replace(/\u0001/g, '\\'));
+    const m = /__initialData__\s*=\s*"/.exec(html);
+    if (m && html.includes('%22description%22')) { try { out.push(decodeURIComponent(jsonStrAt(html, m.index + m[0].length))); } catch { /* не вышло */ } }
+    return out;
+  }
+  function descFromJson(src, id) {
     let best = '';
     const re = /"description":"/g;
     let x;
-    while ((x = re.exec(html))) {
-      if (!html.slice(Math.max(0, x.index - 4000), x.index + 4000).includes(id)) continue;
-      const t = jsonStrAt(html, x.index + x[0].length);
+    while ((x = re.exec(src))) {
+      if (!src.slice(Math.max(0, x.index - 20000), x.index + 20000).includes(id)) continue; // только у этого объявления, не у похожих
+      const t = jsonStrAt(src, x.index + x[0].length);
       if (t.length > best.length) best = t;
     }
-    if (best.length >= 15) return htmlToText(best);
-    m = html.match(/<meta[^>]+(?:property="og:description"|itemprop="description")[^>]+content="([^"]*)"/);
-    return m ? htmlToText(m[1]) : '';
+    return best;
   }
-  const cleanDesc = (t) => String(t || '').replace(/[ \t\u00a0]+/g, ' ').replace(/\n\s*\n+/g, '\n').slice(0, DESC.keep);
+  function extractDesc(html, id) {
+    let m = html.match(/<(div|p|section)[^>]*(?:data-marker="[^"]*description[^"]*"|itemprop="description")[^>]*>([\s\S]{0,30000}?)<\/\1>/);
+    if (m) { const t = htmlToText(m[2]); if (t.length >= 15) return { text: t, how: 'разметка' }; }
+    for (const src of jsonLayers(html)) {
+      const t = descFromJson(src, id);
+      if (t.length >= 15) return { text: htmlToText(t), how: src === html ? 'json' : 'json-2' };
+    }
+    m = html.match(/<meta[^>]+(?:property="og:description"|itemprop="description")[^>]+content="([^"]*)"/);
+    return m ? { text: htmlToText(m[1]), how: 'og' } : { text: '', how: '' };
+  }
+  const cleanDesc = (t) => String(t || '').replace(/[ \t ]+/g, ' ').replace(/\n\s*\n+/g, '\n').slice(0, DESC.keep);
+  // что ответил Авито — чтобы понять, почему описание не нашлось (уходит в файл для анализа)
+  function descDiag(res, html, got, url) {
+    const near = (re) => { const x = re.exec(html); return x ? html.slice(Math.max(0, x.index - 100), x.index + 150).replace(/\s+/g, ' ') : ''; };
+    return { at: Date.now(), url, status: res.status, redirected: res.redirected, finalUrl: res.url, len: html.length,
+      title: ((html.match(/<title[^>]*>([^<]{0,200})/i) || [])[1] || '').trim(), how: got.how, found: got.text.slice(0, 150),
+      marks: { markup: /data-marker="[^"]*description|itemprop="description"/.test(html), json: html.includes('"description":"'),
+        jsonEsc: /&quot;description&quot;|\\"description\\"|%22description%22/.test(html), og: /og:description/.test(html),
+        initialData: html.includes('__initialData__'), idInPage: html.includes(url.split('_').pop()) },
+      block: near(/captcha|firewall|доступ ограничен|не робот|подозрительн/i), head: html.slice(0, 1500).replace(/\s+/g, ' ') };
+  }
   async function descFetch(it) {
     const u = new URL(it.url);
     const res = await fetch(location.origin + u.pathname, { credentials: 'omit', referrerPolicy: 'no-referrer' });
     if (res.status === 404 || res.status === 410) return { text: '' };
     const html = await res.text();
-    const text = extractDesc(html, it.id);
-    if (res.status === 429 || res.status === 403 || (!text && /captcha|Доступ ограничен|firewall/i.test(html.slice(0, 30000)))) return { blocked: true };
-    return { text };
+    const got = extractDesc(html, it.id);
+    // блокировка — только явная: раньше слово «captcha» в служебном коде обычной страницы принималось за паузу
+    const blocked = res.status === 429 || res.status === 403 || (!got.text &&
+      (/<title[^>]*>[^<]*(?:доступ ограничен|робот|captcha|проверка)/i.test(html) || (html.length < 60000 && /captcha|firewall|доступ ограничен/i.test(html))));
+    return { text: got.text, blocked, diag: got.text && !blocked ? null : descDiag(res, html, got, it.url) };
   }
 
   async function descRun() {
@@ -1677,7 +1705,8 @@
     if (!todo.length) return 0;
     descRunning = true;
     const got = {};
-    let n = 0, ok = 0, fail = 0, blocked = false, lastFail = '';
+    let n = 0, ok = 0, fail = 0, blocked = false, lastFail = '', failRow = loadDescSt().failRow || 0;
+    const diags = [];
     const save = () => { // пачкой: лента весит мегабайты
       const ids = Object.keys(got);
       if (!ids.length) return;
@@ -1702,10 +1731,12 @@
         GM_setValue('descLock', String(Date.now()));
         let r;
         try { r = await descFetch(it); } catch { continue; } // сеть — попробуем в следующий раз
+        if (r.diag) diags.push(r.diag);
         if (r.blocked) { blocked = true; break; }
         const text = cleanDesc(r.text);
         got[it.id] = { fullDesc: text, descAt: Date.now() };
-        if (text) ok++; else { fail++; lastFail = it.url; }
+        if (text) { ok++; failRow = 0; } else { fail++; lastFail = it.url; failRow++; }
+        if (failRow >= 8) break; // описание раз за разом не находится — не тратим запросы, ждём разбора
         if (++n % 4 === 0) save();
         await sleep(DESC.gap + Math.random() * 1500);
       }
@@ -1713,8 +1744,10 @@
       save();
       const st2 = loadDescSt();
       const pause = blocked ? Math.min(DESC.maxPause, st2.lastPause ? st2.lastPause * 2 : DESC.pause) : 0;
-      saveDescSt({ ok: (st2.ok || 0) + ok, fail: (st2.fail || 0) + fail, lastPause: pause,
-        ...(lastFail ? { lastFail } : {}), ...(blocked ? { pauseUntil: Date.now() + pause } : {}) });
+      const stuck = failRow >= 8 ? Date.now() + 6 * 3600000 : 0;
+      saveDescSt({ ok: (st2.ok || 0) + ok, fail: (st2.fail || 0) + fail, lastPause: pause, failRow, stuck: stuck || 0,
+        diag: [...diags, ...(st2.diag || [])].slice(0, 5),
+        ...(lastFail ? { lastFail } : {}), ...(blocked || stuck ? { pauseUntil: Math.max(blocked ? Date.now() + pause : 0, stuck) } : {}) });
       GM_setValue('descLock', '0');
       descRunning = false;
     }
@@ -1726,7 +1759,8 @@
     if (!loadOpts().desc) return '📄 Загрузка описаний выключена (⚙️).';
     const p = (st.pauseUntil || 0) - Date.now();
     return `📄 Описаний скачано: ${st.ok || 0}, страниц без описания: ${st.fail || 0}` +
-      (p > 0 ? ` · Авито попросил паузу, продолжу через ${Math.ceil(p / 60000)} мин` : '');
+      (p > 0 ? (st.stuck > Date.now() ? ' · описание не находится на страницах — нажмите ⚙️ → «🔬 Проверить загрузку описания»'
+        : ` · Авито попросил паузу, продолжу через ${Math.ceil(p / 60000)} мин`) : '');
   }
 
   function openFeedOpts() {
@@ -1752,11 +1786,32 @@
         if (typeof GM_notification !== 'function') { alert('Уведомления недоступны в этом браузере или Tampermonkey.'); return; }
         try { GM_notification({ title: '⭐ Авито: так выглядит уведомление', text: '5 000 ₽ — пример объявления', timeout: 8000 }); } catch (e) { alert('Не вышло: ' + e.message); }
       };
+      const probe = mbtn('🔬 Проверить загрузку описания');
+      probe.onclick = async () => {
+        const it = descCandidates()[0] || pendingItems().find((x) => x.url);
+        if (!it) { alert('В ленте нет объявлений для проверки.'); return; }
+        probe.disabled = true; probe.textContent = '⏳ Загружаю…';
+        let r;
+        try { r = await descFetch(it); } catch (e) { r = { text: '', diag: { status: 'ошибка сети: ' + e.message } }; }
+        probe.disabled = false; probe.textContent = '🔬 Проверить загрузку описания';
+        const d = r.diag || {};
+        if (r.diag) saveDescSt({ diag: [r.diag, ...(loadDescSt().diag || [])].slice(0, 5) });
+        if (r.text) {
+          saveDescSt({ pauseUntil: 0, stuck: 0, failRow: 0, lastPause: 0 }); // работает — снимаем паузу
+          const feed = loadFeed(); if (feed[it.id]) { Object.assign(feed[it.id], { fullDesc: cleanDesc(r.text), descAt: Date.now() }); saveFeed(feed); }
+          alert(`✅ Описание скачалось (${it.title}):\n\n${r.text.slice(0, 300)}…\n\nЗагрузка описаний продолжится сама.`);
+        } else {
+          const mk = d.marks ? Object.entries(d.marks).map(([k, v]) => k + (v ? '+' : '−')).join(' ') : '';
+          alert(`❌ Описание не нашлось${r.blocked ? ' — похоже, Авито не пускает без cookie' : ''}.\n\n` +
+            `Ответ: ${d.status}${d.redirected ? ' (перенаправил на ' + d.finalUrl + ')' : ''}, ${d.len} знаков\nЗаголовок: ${d.title || '—'}\n${mk}\n${d.block ? 'Фрагмент: ' + d.block.slice(0, 200) : ''}\n\n` +
+            'Сделайте скриншот этого окна и пришлите разработчику (или «📊 Файл для анализа» — там то же самое подробнее).');
+        }
+      };
       const rep = mbtn('📊 Файл для анализа пали'); rep.onclick = () => { close(); exportPalReportUi(); };
       const ok = mbtn('Готово', true); ok.onclick = close;
       const keys = el('div', null, 'Клавиши в ленте (ПК): J / K — следующее / предыдущее, O или Enter — открыть, X — скрыть, F — отложить.');
       keys.style.cssText = 'color:#555;font-size:12px;margin-top:6px';
-      box.append(keys, test, rep, ok);
+      box.append(keys, test, probe, rep, ok);
     });
   }
 
