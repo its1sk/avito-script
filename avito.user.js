@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Avito — скрыть продавцов + мои поиски
 // @namespace    avito-seller-blocker
-// @version      5.1
+// @version      5.2
 // @description  Скрытие продавцов, сохранённые поиски, стоп-слова, лента новых объявлений по всем поискам
 // @match        https://www.avito.ru/*
 // @match        https://m.avito.ru/*
@@ -509,7 +509,9 @@
       async function go() {
         if (!ta.value.trim()) { err.textContent = 'Пусто — вставьте код или выберите файл'; return; }
         try {
-          const data = await decode(ta.value); close();
+          const data = await decode(ta.value);
+          if (data && data.kind === 'ams-palreport') { err.textContent = 'Это файл для анализа пали — его не загружают, а присылают разработчику.'; return; }
+          close();
           if (data && data.kind === 'ams-local') {
             if (!confirm(`Заменить всё на этом устройстве копией с другого (поисков ${data.searches.length}, ` +
               `скрытых продавцов ${Object.keys(data.sellers || {}).length})?\nТекущие поиски сохранятся в «🗂 Копии».`)) return;
@@ -1066,6 +1068,7 @@
 
   function palVerdict(it, ctx, search) {
     if (!(ctx ? ctx.palOn : palOn())) return null;
+    if (((ctx && ctx.missed) || loadMissedRO())[it.id]) return { s: 99, why: ['вы отметили: паль'] };
     const ok = (ctx && ctx.palOk) || loadPalOk();
     if ((it.sellerKey && ok[it.sellerKey]) || ok['id:' + it.id]) return null;
     const f = palFeat(it);
@@ -1080,6 +1083,7 @@
       const bad = r.bad.filter((x) => x !== it.id).length;
       if (bad) { m += bad >= 2 ? 3 : 2; why.push('у продавца есть ещё объявления, похожие на паль'); }
     }
+    if (it.sellerKey && ((ctx && ctx.missSellers) || missedSellers()).has(it.sellerKey)) { m += 4; why.push('этого продавца вы уже отмечали как паль'); }
     if (ctx && ctx.feed && !ctx.dup) ctx.dup = palDupIndex(ctx.feed);
     const dup = palDups(it, ctx ? ctx.dup : palDupIndex(loadFeedRO()));
     if (dup) { m += 3; why.push(dup); }
@@ -1093,7 +1097,84 @@
   }
 
   // ctx — заранее прочитанные продавцы и общие стоп-слова (чтобы не читать хранилище на каждое объявление)
-  const hideCtx = () => ({ sellers: loadSellers(), global: loadGlobal(), palOk: loadPalOk(), palOn: palOn() });
+  const hideCtx = () => ({ sellers: loadSellers(), global: loadGlobal(), palOk: loadPalOk(), palOn: palOn(), missed: loadMissedRO(), missSellers: missedSellers() });
+
+  // ---------------- отметки для анализа пали ----------------
+  // «🇨🇳 Паль» на обычной карточке — фильтр пропустил паль; «✅ Не паль» — фильтр ошибся. Оба списка с полными данными
+  // объявления уходят в файл «📊 Для анализа»: по нему настраиваются правила детектора.
+  const MISS_KEY = 'palMissed', WRONG_KEY = 'palWrong', MARK_MAX = 300;
+  const loadMarks = (k) => { try { return JSON.parse(GM_getValue(k, '{}')) || {}; } catch { return {}; } };
+  const loadMissedRO = () => peekJSON(MISS_KEY, '{}'); // НЕ менять то, что вернула
+  let missSellersCache = { raw: null, set: new Set() };
+  function missedSellers() {
+    const raw = GM_getValue(MISS_KEY, '{}');
+    if (missSellersCache.raw !== raw) missSellersCache = { raw, set: new Set(Object.values(loadMissedRO()).map((x) => x.sellerKey).filter(Boolean)) };
+    return missSellersCache.set;
+  }
+  const searchOf = (sid) => loadRO().find((x) => x.id === sid);
+  // снимок объявления со всем, что о нём знает детектор
+  function palSnapshot(it, search, ctx, verdict) {
+    const f = palFeat(it), r = it.sellerKey && palDbLoad()[it.sellerKey];
+    const { id, url, title, price, oldPrice, params, desc, fullDesc, descAt, sellerKey, sellerName, closed, city, ts, bumped, img, sid, found } = it;
+    return { id, url, title, price, oldPrice, params, desc, fullDesc, descAt, sellerKey, sellerName, closed, city, ts, bumped, img, sid, found,
+      sname: it.sname || (search && search.name) || '',
+      feat: { w: f.w, m: f.m, minus: f.minus, s: f.s, why: f.why },
+      verdict: verdict !== undefined ? verdict : palVerdict(it, ctx || null, search),
+      seller: r ? { seen: r.ids.length, bad: r.bad.length, brands: r.br } : null,
+      markedAt: Date.now() };
+  }
+  function saveMark(k, snap) {
+    const m = loadMarks(k); m[snap.id] = snap;
+    const ids = Object.keys(m);
+    if (ids.length > MARK_MAX) ids.sort((a, b) => m[a].markedAt - m[b].markedAt).slice(0, ids.length - MARK_MAX).forEach((x) => delete m[x]);
+    GM_setValue(k, JSON.stringify(m));
+  }
+  function dropMark(k, id) { const m = loadMarks(k); if (m[id]) { delete m[id]; GM_setValue(k, JSON.stringify(m)); } }
+  // «это паль»: вещь уходит в «Похоже на паль», остальные вещи продавца — тоже; описание дозагружаем для анализа
+  function markMissedPal(it) {
+    saveMark(MISS_KEY, palSnapshot(it, searchOf(it.sid)));
+    dropMark(WRONG_KEY, it.id);
+    if (it.sellerKey) { const ok = loadPalOk(); if (ok[it.sellerKey]) { delete ok[it.sellerKey]; GM_setValue('palOk', JSON.stringify(ok)); } }
+    if (it.descAt || !loadOpts().desc || Date.now() < (loadDescSt().pauseUntil || 0)) return;
+    descFetch(it).then((r) => {
+      if (!r || r.blocked) return;
+      const fullDesc = cleanDesc(r.text), descAt = Date.now();
+      const feed = loadFeed(); if (feed[it.id]) { Object.assign(feed[it.id], { fullDesc, descAt }); saveFeed(feed); }
+      const m = loadMarks(MISS_KEY);
+      if (m[it.id]) {
+        const f = palFeat({ ...it, fullDesc });
+        Object.assign(m[it.id], { fullDesc, descAt, featWithDesc: { w: f.w, m: f.m, minus: f.minus, s: f.s, why: f.why } });
+        GM_setValue(MISS_KEY, JSON.stringify(m));
+      }
+    }).catch(() => { /* не вышло — не страшно */ });
+  }
+  // «✅ Не паль»: запоминаем, на чём детектор ошибся
+  function markWrongPal(it) {
+    saveMark(WRONG_KEY, palSnapshot(it, searchOf(it.sid), null, it.pv || undefined));
+    dropMark(MISS_KEY, it.id);
+  }
+  // файл для разработчика: отмеченное вами + что сейчас во вкладке пали и в обычной ленте
+  async function exportPalReport() {
+    const feed = loadFeedRO(), byId = new Map(loadRO().map((s) => [s.id, s]));
+    const ctx = { ...hideCtx(), feed };
+    const all = pendingItems(), pal = all.filter((x) => x.pv), normal = all.filter((x) => !x.pv);
+    const snap = (it) => palSnapshot(it, byId.get(it.sid), ctx, it.pv || null);
+    const missed = Object.values(loadMarks(MISS_KEY)), wrong = Object.values(loadMarks(WRONG_KEY));
+    const palTab = pal.slice(0, 200).map(snap), rest = normal.slice(0, 400).map(snap);
+    const db = palDbLoad(), sellers = {};
+    for (const x of [...missed, ...wrong, ...palTab, ...rest]) if (x.sellerKey && db[x.sellerKey]) sellers[x.sellerKey] = db[x.sellerKey];
+    const data = { kind: 'ams-palreport', v: typeof GM_info !== 'undefined' ? GM_info.script.version : '', at: Date.now(),
+      global: loadGlobal(), descState: loadDescSt(), missed, wrong, palTab, normal: rest, sellers };
+    downloadText(await encode(data), `avito-pal-analiz-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.txt`);
+    return { missed: missed.length, wrong: wrong.length, pal: palTab.length, normal: rest.length };
+  }
+  async function exportPalReportUi() {
+    try {
+      const n = await exportPalReport();
+      alert(`Файл сохранён: отмечено вами «паль» — ${n.missed}, «не паль» — ${n.wrong}; из вкладки пали ${n.pal}, из обычной ленты ${n.normal}.\n\n` +
+        'Пришлите его в чат с разработчиком. Загружать его в скрипт не нужно.');
+    } catch (e) { alert('Не вышло сохранить файл: ' + e.message); }
+  }
   function feedHideReason(it, search, ctx) {
     const { sellers, global } = ctx || hideCtx();
     if (it.sellerKey && sellers[it.sellerKey]) return 'seller';
@@ -1353,7 +1434,7 @@
   // Чистим ленту от лишнего. Непросмотренные объявления НЕ трогаем (раньше обрезали всё подряд до 400 —
   // и после долгого перерыва большая часть новых пропадала). Режем только просмотренные и скрытые фильтрами.
   // номер версии кода: вкладка со старой версией, увидев более новую, перестаёт проверять в фоне
-  const CODE_VER = 51;
+  const CODE_VER = 52;
   if (+GM_getValue('codeVer', 0) < CODE_VER) GM_setValue('codeVer', CODE_VER);
   const PENDING_MAX = 5000; // аварийный потолок для непросмотренных
   function trimFeed(feed) {
@@ -1576,6 +1657,7 @@
     m = html.match(/<meta[^>]+(?:property="og:description"|itemprop="description")[^>]+content="([^"]*)"/);
     return m ? htmlToText(m[1]) : '';
   }
+  const cleanDesc = (t) => String(t || '').replace(/[ \t\u00a0]+/g, ' ').replace(/\n\s*\n+/g, '\n').slice(0, DESC.keep);
   async function descFetch(it) {
     const u = new URL(it.url);
     const res = await fetch(location.origin + u.pathname, { credentials: 'omit', referrerPolicy: 'no-referrer' });
@@ -1621,7 +1703,7 @@
         let r;
         try { r = await descFetch(it); } catch { continue; } // сеть — попробуем в следующий раз
         if (r.blocked) { blocked = true; break; }
-        const text = r.text.replace(/[ \t ]+/g, ' ').replace(/\n\s*\n+/g, '\n').slice(0, DESC.keep);
+        const text = cleanDesc(r.text);
         got[it.id] = { fullDesc: text, descAt: Date.now() };
         if (text) ok++; else { fail++; lastFail = it.url; }
         if (++n % 4 === 0) save();
@@ -1670,10 +1752,11 @@
         if (typeof GM_notification !== 'function') { alert('Уведомления недоступны в этом браузере или Tampermonkey.'); return; }
         try { GM_notification({ title: '⭐ Авито: так выглядит уведомление', text: '5 000 ₽ — пример объявления', timeout: 8000 }); } catch (e) { alert('Не вышло: ' + e.message); }
       };
+      const rep = mbtn('📊 Файл для анализа пали'); rep.onclick = () => { close(); exportPalReportUi(); };
       const ok = mbtn('Готово', true); ok.onclick = close;
       const keys = el('div', null, 'Клавиши в ленте (ПК): J / K — следующее / предыдущее, O или Enter — открыть, X — скрыть, F — отложить.');
       keys.style.cssText = 'color:#555;font-size:12px;margin-top:6px';
-      box.append(keys, test, ok);
+      box.append(keys, test, rep, ok);
     });
   }
 
@@ -1684,7 +1767,7 @@
   function pendingItems() {
     palDbLoad(); // чтобы отметка времени памяти о продавцах не менялась прямо посреди сравнения
     const sig = [GM_getValue(KEY, '[]'), GM_getValue(FEED_KEY, '{}'), GM_getValue('blockedSellers', '{}'),
-      GM_getValue(GLOBAL_KEY, '[]'), GM_getValue('palOk', '{}'), GM_getValue('palOff', ''), palDbAt];
+      GM_getValue(GLOBAL_KEY, '[]'), GM_getValue('palOk', '{}'), GM_getValue('palOff', ''), GM_getValue(MISS_KEY, '{}'), palDbAt];
     if (pendCache && pendCache.sig.every((v, i) => v === sig[i])) return pendCache.out;
     const out = pendingCalc();
     pendCache = { sig, out };
@@ -2161,10 +2244,20 @@
           };
           act.append(bSel);
         }
+        if (!it.pv) {
+          const bPal = el('button', null, '🇨🇳 Паль'); bPal.dataset.act = 'pal';
+          bPal.title = 'Это паль, а фильтр пропустил: убрать во «Похоже на паль» и запомнить для анализа';
+          bPal.onclick = () => {
+            markMissedPal(it); dropCards((x) => x.id === it.id); updateFabBadge(); headSoon();
+            feedToast('Отмечено как паль', () => { dropMark(MISS_KEY, it.id); updateFabBadge(); draw(); });
+          };
+          act.append(bPal);
+        }
         if (it.pv) {
           const bOk = el('button', null, '✅ Не паль');
           bOk.title = it.sellerKey ? 'Больше не считать паленым этого продавца' : 'Вернуть объявление в обычную ленту';
           bOk.onclick = () => {
+            markWrongPal(it);
             const ok = loadPalOk(); ok[it.sellerKey || 'id:' + it.id] = it.sellerName || it.title;
             GM_setValue('palOk', JSON.stringify(ok));
             dropCards((x) => (it.sellerKey ? x.sellerKey === it.sellerKey : x.id === it.id)); updateFabBadge(); headSoon();
@@ -2202,6 +2295,11 @@
         box.append(bAll);
       }
       box.append(el('span', null, descStatus()));
+      const nm = Object.keys(loadMissedRO()).length, nw = Object.keys(loadMarks(WRONG_KEY)).length;
+      const bRep = el('button', null, `📊 Файл для анализа (паль: ${nm}, не паль: ${nw})`);
+      bRep.title = 'Отмечайте «🇨🇳 Паль» на пропущенной пали и «✅ Не паль» на ошибках, потом сохраните файл и пришлите его разработчику';
+      bRep.onclick = exportPalReportUi;
+      box.append(bRep);
       const bTog = el('button', null, palOn() ? 'Выключить фильтр' : 'Включить фильтр пали');
       bTog.onclick = () => { GM_setValue('palOff', palOn() ? '1' : ''); updateFabBadge(); draw(); };
       box.append(bTog);
