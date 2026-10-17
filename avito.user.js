@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Avito — скрыть продавцов + мои поиски
 // @namespace    avito-seller-blocker
-// @version      5.5
+// @version      5.6
 // @description  Скрытие продавцов, сохранённые поиски, стоп-слова, лента новых объявлений по всем поискам
 // @match        https://www.avito.ru/*
 // @match        https://m.avito.ru/*
@@ -1160,7 +1160,7 @@
     const all = pendingItems(), pal = all.filter((x) => x.pv), normal = all.filter((x) => !x.pv);
     const snap = (it) => palSnapshot(it, byId.get(it.sid), ctx, it.pv || null);
     const missed = Object.values(loadMarks(MISS_KEY)), wrong = Object.values(loadMarks(WRONG_KEY));
-    const palTab = pal.slice(0, 200).map(snap), rest = normal.slice(0, 400).map(snap);
+    const palTab = pal.map(snap), rest = normal.slice(0, 400).map(snap); // вкладка пали — целиком
     const db = palDbLoad(), sellers = {};
     for (const x of [...missed, ...wrong, ...palTab, ...rest]) if (x.sellerKey && db[x.sellerKey]) sellers[x.sellerKey] = db[x.sellerKey];
     const data = { kind: 'ams-palreport', v: typeof GM_info !== 'undefined' ? GM_info.script.version : '', at: Date.now(),
@@ -1434,7 +1434,7 @@
   // Чистим ленту от лишнего. Непросмотренные объявления НЕ трогаем (раньше обрезали всё подряд до 400 —
   // и после долгого перерыва большая часть новых пропадала). Режем только просмотренные и скрытые фильтрами.
   // номер версии кода: вкладка со старой версией, увидев более новую, перестаёт проверять в фоне
-  const CODE_VER = 55;
+  const CODE_VER = 56;
   if (+GM_getValue('codeVer', 0) < CODE_VER) GM_setValue('codeVer', CODE_VER);
   const PENDING_MAX = 5000; // аварийный потолок для непросмотренных
   function trimFeed(feed) {
@@ -1626,17 +1626,19 @@
   let descRunning = false;
 
   // кому нужно описание: новое — всегда; «Отличное» и т.п. — только у продавцов, похожих на магазин
-  // (магазины пали ставят «Отличное», чтобы не выглядеть магазином). Отмеченное вами «Паль» — тоже, для анализа.
+  // (магазины пали ставят «Отличное», чтобы не выглядеть магазином). Отмеченное вами «Паль» и вся вкладка пали — тоже,
+  // для файла анализа (в конце очереди).
   function descCandidates() {
     const okSellers = loadPalOk(), missed = loadMissedRO(), db = palDbLoad(), border = Date.now() - DESC.maxAgeH * 3600000;
     const shopLike = (it) => (it.sellerName && (PAL_SHOPNAME.test(norm(it.sellerName)) || /^[A-Z0-9 &._'|-]{3,}$/.test(it.sellerName.trim()))) ||
       (it.closed || 0) >= 300 || ((db[it.sellerKey] || {}).ids || []).length >= 5;
     return pendingItems().filter((it) => {
       if (it.descAt || !it.url || (it.desc || '').length >= 250) return false;
-      if (missed[it.id]) return true;
-      if (it.pv || (it.found || 0) <= border || (it.sellerKey && okSellers[it.sellerKey])) return false;
+      if (missed[it.id] || it.pv) return true;
+      if ((it.found || 0) <= border || (it.sellerKey && okSellers[it.sellerKey])) return false;
       return /^новое/.test(norm(String(it.params || '').split('·')[0]).trim()) || shopLike(it);
-    }).sort((a, b) => (missed[b.id] ? 1 : 0) - (missed[a.id] ? 1 : 0) || (a.shownAt ? 1 : 0) - (b.shownAt ? 1 : 0)); // сначала то, что вы ещё не видели
+    }).sort((a, b) => (missed[b.id] ? 1 : 0) - (missed[a.id] ? 1 : 0) || (a.pv ? 1 : 0) - (b.pv ? 1 : 0) ||
+      (a.shownAt ? 1 : 0) - (b.shownAt ? 1 : 0)); // ваши отметки → обычная лента (сначала невиденное) → вкладка пали
   }
 
   const htmlToText = (h) => {
