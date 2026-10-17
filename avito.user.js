@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Avito — скрыть продавцов + мои поиски
 // @namespace    avito-seller-blocker
-// @version      4.9
+// @version      5.0
 // @description  Скрытие продавцов, сохранённые поиски, стоп-слова, лента новых объявлений по всем поискам
 // @match        https://www.avito.ru/*
 // @match        https://m.avito.ru/*
@@ -11,6 +11,8 @@
 // @grant        GM_setClipboard
 // @grant        GM_notification
 // @run-at       document-idle
+// @updateURL    https://raw.githubusercontent.com/its1sk/avito-script/main/avito.user.js
+// @downloadURL  https://raw.githubusercontent.com/its1sk/avito-script/main/avito.user.js
 // ==/UserScript==
 
 (function () {
@@ -1327,7 +1329,7 @@
   // Чистим ленту от лишнего. Непросмотренные объявления НЕ трогаем (раньше обрезали всё подряд до 400 —
   // и после долгого перерыва большая часть новых пропадала). Режем только просмотренные и скрытые фильтрами.
   // номер версии кода: вкладка со старой версией, увидев более новую, перестаёт проверять в фоне
-  const CODE_VER = 49;
+  const CODE_VER = 50;
   if (+GM_getValue('codeVer', 0) < CODE_VER) GM_setValue('codeVer', CODE_VER);
   const PENDING_MAX = 5000; // аварийный потолок для непросмотренных
   function trimFeed(feed) {
@@ -2783,6 +2785,14 @@
     bk.title = 'Резервные копии: восстановить поиски, если что-то пропало';
     bk.onclick = openBackups;
     io.append(glob, exp, imp, bk);
+    // обновление с GitHub: Tampermonkey сам узнаёт ссылку .user.js и предлагает «Обновить» в тот же скрипт (данные не теряются)
+    const upd = typeof GM_info !== 'undefined' && GM_info.script && (GM_info.script.downloadURL || GM_info.script.updateURL);
+    if (upd) {
+      const ub = el('button', 'ams-btn', '⬆️ Обновить');
+      ub.title = 'Проверить новую версию на GitHub. Если она есть — Tampermonkey предложит «Обновить». После обновления перезагрузите вкладки Авито.';
+      ub.onclick = () => window.open(upd, '_blank');
+      io.append(ub);
+    }
     foot.append(io);
 
     panel.append(head, tools, box, foot);
