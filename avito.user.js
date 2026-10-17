@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Avito — скрыть продавцов + мои поиски
 // @namespace    avito-seller-blocker
-// @version      5.0
+// @version      5.1
 // @description  Скрытие продавцов, сохранённые поиски, стоп-слова, лента новых объявлений по всем поискам
 // @match        https://www.avito.ru/*
 // @match        https://m.avito.ru/*
@@ -714,7 +714,7 @@
 
   // настройки ленты
   const OPT_KEY = 'amsOpts';
-  const loadOpts = () => ({ notify: true, hiddenTab: false, sort: 'date', ...peekJSON(OPT_KEY, '{}') });
+  const loadOpts = () => ({ notify: true, hiddenTab: false, desc: true, sort: 'date', ...peekJSON(OPT_KEY, '{}') });
   const saveOpt = (k, v) => GM_setValue(OPT_KEY, JSON.stringify({ ...peekJSON(OPT_KEY, '{}'), [k]: v }));
 
   function cardPrice(c) {
@@ -854,9 +854,22 @@
     });
     return { text, mixed };
   }
+  // стоп-слова: латинские буквы, похожие на русские, считаем русскими — «пoмoжeм» с латинской «o» = «поможем»
+  const fixWordCache = new Map(), fixTextCache = new Map();
+  const fixWord = (w) => { let v = fixWordCache.get(w); if (v === undefined) { v = palText(w).text; fixWordCache.set(w, v); } return v; };
+  function findWord(text, words) {
+    if (!words.length) return undefined;
+    const hit = words.find((w) => hasWord(text, w));
+    if (hit || !/[a-z]/.test(text)) return hit;
+    let t2 = fixTextCache.get(text);
+    if (t2 === undefined) { if (fixTextCache.size > 5000) fixTextCache.clear(); t2 = palText(text).text; fixTextCache.set(text, t2); }
+    return words.find((w) => hasWord(t2, fixWord(w)));
+  }
+  // текст объявления для стоп-слов: с полным описанием, если оно уже скачано
+  const itemText = (it) => norm(it.title + '\n' + it.desc + '\n' + (it.params || '') + (it.fullDesc ? '\n' + it.fullDesc : ''));
   const LETTER_SIZES = ['xxs', 'xs', 's', 'm', 'l', 'xl', 'xxl', 'xxxl', '4xl', '5xl'];
   const SZ_TOKEN = String.raw`(?:\d{2}(?:[.,]5)?|[2-5]?x{0,3}[sml]|xxs)`;
-  const SZ_LIST = new RegExp(String.raw`(?:размер\S*|р-р|р\.|sizes?)\s*(?:в наличии|есть)?\s*[:\-–—]?\s*(?:от\s+)?(${SZ_TOKEN}(?:\s*(?:[,;/]|[-–—]|до|и|\s)\s*${SZ_TOKEN}){1,14})(?!\s*(?:см|мм|cm|mm|\d))`, 'g');
+  const SZ_LIST = new RegExp(String.raw`(?:размер\S*|р-р|р\.|sizes?|в наличии)\s*(?:в наличии|есть)?\s*[:\-–—]?\s*(?:от\s+)?(${SZ_TOKEN}(?:\s*(?:[,;/]|[-–—]|до|и|\s)\s*${SZ_TOKEN}){1,14})(?!\s*(?:см|мм|cm|mm|\d))`, 'g');
   const letIdx = (t) => LETTER_SIZES.indexOf(t.replace(/^2x/, 'xx').replace(/^3x/, 'xxx'));
   // список/диапазон размеров → true, если это явно «много размеров в наличии»
   function manySizes(tokens, hasRange) {
@@ -870,6 +883,17 @@
     }
     return lets.length >= 3 || (lets.length === 2 && hasRange && Math.abs(lets[1] - lets[0]) >= 2);
   }
+  // таблица размеров по строкам: «37EU-23,5см», «41 — 26 см», «S - 46», «46 (S)» — у пали она почти в каждом описании
+  const SZ_ROW_SHOE = /(?:^|[\n;•|])[^\da-zа-я\n]{0,4}(3[4-9]|4[0-8])(?:[.,]5)?\s*(?:eu|eur|ru|рус|рос)?\s*[-–—=:(]\s*\d{2}(?:[.,]\d)?\s*(?:см|cm)?/g;
+  const SZ_ROW_LET = /(?:^|[\n;•|])[^\da-zа-я\n]{0,4}(xxs|xs|s|m|l|xl|xxl|xxxl|[2-5]xl)\s*(?:[-–—=:(/]\s*)\(?\s*(?:4\d|5\d|6\d)\b/g;
+  const SZ_ROW_NUM = /(?:^|[\n;•|])[^\da-zа-я\n]{0,4}(4[0-9]|5[0-8])\s*[-–—(/]\s*(?:xxs|xs|s|m|l|xl|xxl|xxxl|[2-5]xl)\b/g;
+  function sizeTable(text) {
+    for (const re of [SZ_ROW_SHOE, SZ_ROW_LET, SZ_ROW_NUM]) {
+      const rows = new Set([...text.matchAll(re)].map((x) => x[1]));
+      if (rows.size >= 3) return true;
+    }
+    return false;
+  }
   const NOT = String.raw`(?<!не\s)(?<!not\s)(?<!no\s)(?<!без\s)`; // «не фейк», «не реплика» — это пишут честные продавцы
   const PAL_STRONG = [
     [rxW(String.raw`${NOT}реплик|${NOT}replica|\brep\b|${NOT}\bфейк|${NOT}\bfake\b|${NOT}\bпаль\b|\bпалево|\bаналог\b|не оригинал|неоригинал|\bне ориг\b|зеркальн\S* копи|${NOT}\bкопи[яию]\b|\bmirror\b|\bpk god\b|\bputian\b|путянь|\bucg\b`), 'реплика / копия'],
@@ -877,9 +901,9 @@
   ];
   const PAL_LIKE = rxW(String.raw`\bпо типу\s+["«']?[a-z]`); // «по типу Dolce» — паль, «по типу бомбера» — нет
   // фразы «размеры в наличии» — тот же признак, что и список размеров
-  const PAL_SIZEWORDS = rxW(String.raw`все размеры|любой размер|любые размеры|размерн\S* сетк|размерн\S* ряд|наличие размер|уточняйте (?:\S+ )?(?:размер|наличие)|размеры в наличии|в наличии (?:все|любые) размер|популярные размеры`);
+  const PAL_SIZEWORDS = rxW(String.raw`все размеры|любой размер|любые размеры|размерн\S* сетк|размерн\S* ряд|наличие размер|уточняйте (?:\S+ )?(?:размер|наличие)|размеры в наличии|в наличии (?:все|любые) размер|популярные размеры|размеры по стельке|(?:все|любые) в наличии|в наличии все|подбер[её]м размер|поможем (?:вам )?(?:подобрать|определиться)|подобрать (?:\S+ )?размер|по (?:росту и весу|весу и росту)|(?:рост|вес)\S*\s*(?:и|/)\s*(?:рост|вес)`);
   // типичное для магазинов пали (не просто «подписывайтесь»)
-  const PAL_SHOP = rxW(String.raw`оператор 24|почему (?:нам|стоит|выбирают|нас)|при покупке (?:2|двух|от)|скидк\S* при (?:покупке|заказе)|без предоплат|с примеркой|доставка в день|в день заказа|отправка в день|перед заказом|\bпод заказ|\bоптом\b|\bопт\b|успейте|популярные модели|каждая пара|в коробке с бирками|полный комплект`, 'g');
+  const PAL_SHOP = rxW(String.raw`оператор 24|почему (?:нам|стоит|выбирают|нас)|при покупке (?:2|двух|от)|скидк\S* при (?:покупке|заказе)|без предоплат|с примеркой|доставка в день|в день заказа|отправка в день|перед заказом|\bпод заказ|\bоптом\b|\bопт\b|успейте|популярные модели|каждая пара|в коробке с бирками|полный комплект|пишите (?:нам )?в (?:лс|личн)|в день оформлен|реальные фото|навесн\S* бирк|фирменн\S* упаковк|производств\S*\s*[:\-–—]?\s*(?:турц|стамбул|китай|гуанчжоу|кита)|качество на высоте|эксклюзивн\S* товар|возврат без лишних|оформить заказ|оформля\S* заказ|никаких (?:дешев\S* )?аналог`, 'g');
   // обычный магазинный текст — слабый признак
   const PAL_PROMO = rxW(String.raw`подписывай|подпишись|в (?:нашем|моем|мо[её]м) профил|другие модели|больше моделей|наш (?:магазин|шоу-?рум|склад)|шоу-?рум|мы находимся|ежедневно с\s*\d`);
   const PAL_SHOPNAME = rxW(String.raw`shop|store|market|маркет|магазин|бутик|boutique|outlet|аутлет|brand|бренд|sneak|кроссов|boots|\bобув|одежд|clothes|wear\b|fashion|\bstyle|стиль|\blab\b|\bclub\b|stock|\bсток|lux|люкс|premium|премиум|original|оригинал|trade|трейд|\bopt\b|\bопт\b|kicks|\bdrop|step\b|\|`);
@@ -899,7 +923,7 @@
     const isUsed = /отличн|хорош|удовлетвор|как нов|б\/у|ношен/.test(cond);
     if (isNewTag) { w += 2; why.push('новое с биркой'); } else if (isNew) { w += 1; why.push('новое'); }
     if (mixed >= 2) { m += 3; why.push('латинские буквы вместо русских'); }
-    let sizes = PAL_SIZEWORDS.test(text);
+    let sizes = PAL_SIZEWORDS.test(text) || sizeTable(text);
     for (const m of sizes ? [] : text.matchAll(SZ_LIST)) {
       const toks = m[1].split(/\s*(?:[,;/]|[-–—]|до|и|\s)\s*/).filter(Boolean);
       if (manySizes(toks, /[-–—]|до/.test(m[1]))) { sizes = true; break; }
@@ -910,7 +934,8 @@
       if (!sizes) for (const m of t.matchAll(/(?:^|[^\d])(\d{2}(?:[\s,/]+\d{2}){2,})(?!\d)/g)) if (manySizes(m[1].split(/[\s,/]+/), false)) { sizes = true; break; }
       if (!sizes) for (const m of t.matchAll(/(?:^|[^a-z0-9])([2-5]?x{0,3}[sml]|xxs)\s*[-–—]\s*([2-5]?x{0,3}[sml])(?![a-z])/g)) if (manySizes([m[1], m[2]], true)) { sizes = true; break; }
     }
-    if (sizes) { m += 3; why.push('много размеров в наличии'); }
+    // главный признак: продавец пали держит весь размерный ряд. «Новое» + много размеров — уже паль
+    if (sizes) { m += 4; why.push('много размеров в наличии'); }
     let strong = 0;
     for (const [re, label] of PAL_STRONG) if (re.test(text)) { strong++; why.push(label); }
     m += Math.min(strong, 2) * 5;
@@ -925,7 +950,7 @@
     const minus = isUsed && !strong ? 2 : 0; // паль почти всегда «новая»: у ношеных вещей порог выше
     return { v: PAL_V, w, m, minus, s: Math.min(w, PAL_WEAK_CAP) + m - minus, why, isNew: isNewTag || isNew };
   }
-  const PAL_V = 3; // версия правил: старые сохранённые оценки пересчитываются
+  const PAL_V = 4; // версия правил: старые сохранённые оценки пересчитываются
   const palCache = new Map();
   function palFeat(it) {
     const key = `${it.id}|${it.price}|${it.params}|${it.title}|${it.sellerName}|${(it.fullDesc || '').length}`;
@@ -1074,8 +1099,7 @@
     if (it.sellerKey && sellers[it.sellerKey]) return 'seller';
     if (it.sellerName && sellers['name:' + it.sellerName.toLowerCase()]) return 'seller';
     const words = [...global, ...((search && search.ban) || [])];
-    const text = norm(it.title + '\n' + it.desc + '\n' + (it.params || ''));
-    if (words.find((w) => hasWord(text, w))) return 'word';
+    if (findWord(itemText(it), words)) return 'word';
     if (insoleMismatch(it, search)) return 'insole';
     if (sizeMismatch(it, search)) return 'size';
     return brandMismatch(it, search) ? 'brand' : null;
@@ -1329,7 +1353,7 @@
   // Чистим ленту от лишнего. Непросмотренные объявления НЕ трогаем (раньше обрезали всё подряд до 400 —
   // и после долгого перерыва большая часть новых пропадала). Режем только просмотренные и скрытые фильтрами.
   // номер версии кода: вкладка со старой версией, увидев более новую, перестаёт проверять в фоне
-  const CODE_VER = 50;
+  const CODE_VER = 51;
   if (+GM_getValue('codeVer', 0) < CODE_VER) GM_setValue('codeVer', CODE_VER);
   const PENDING_MAX = 5000; // аварийный потолок для непросмотренных
   function trimFeed(feed) {
@@ -1484,7 +1508,7 @@
     const r = await checkAll(null, () => feedUi && feedUi.partial(), 0, pick);
     if (!r || r.busy) return;
     if (feedUi) feedUi.done(r);
-    if (r.found) notifyNew(now);
+    if (r.found) { await descRun(); notifyNew(now); } // сначала описания: паль из уведомления уйдёт
     if (r.blocked) { // Авито просит паузу — вдвое медленнее и отдыхаем
       saveBg({ batch: Math.max(BG.min, Math.floor(batch / 2)), pauseUntil: Date.now() + BG.pause, lastBlock: Date.now() });
     } else if (pick.length >= batch) { // всё прошло, а очередь была полной — можно чуть быстрее
@@ -1510,6 +1534,119 @@
     } catch { /* уведомления недоступны */ }
   }
 
+  // ---------------- полные описания: скачиваем анонимно ----------------
+  // В выдаче Авито описания почти нет (было у 7 объявлений из 100), а «размеры S–XXL в наличии», «поможем подобрать
+  // по росту и весу» пишут именно там. Страницу объявления берём БЕЗ cookie (credentials: 'omit'): Авито не связывает
+  // этот просмотр с вами, рекомендации не портятся. Только новые вещи из ленты, по одной, каждую — один раз.
+  const DESC = { perRun: 12, gap: 2500, maxAgeH: 72, keep: 1500, pause: 15 * 60000, maxPause: 2 * 3600000 };
+  const loadDescSt = () => peekJSON('descState', '{}');
+  const saveDescSt = (o) => GM_setValue('descState', JSON.stringify({ ...loadDescSt(), ...o }));
+  let descRunning = false;
+
+  function descCandidates() {
+    const okSellers = loadPalOk(), border = Date.now() - DESC.maxAgeH * 3600000;
+    return pendingItems().filter((it) => !it.descAt && !it.pv && it.url && (it.found || 0) > border && (it.desc || '').length < 250 &&
+      /^новое/.test(norm(String(it.params || '').split('·')[0]).trim()) && !(it.sellerKey && okSellers[it.sellerKey]))
+      .sort((a, b) => (a.shownAt ? 1 : 0) - (b.shownAt ? 1 : 0)); // сначала то, что вы ещё не видели
+  }
+
+  const htmlToText = (h) => {
+    const t = document.createElement('textarea'); // только раскодирует &amp; и т.п., ничего не выполняет
+    t.innerHTML = String(h).replace(/<br\s*\/?>/gi, '\n').replace(/<\/(?:p|div|li)>/gi, '\n').replace(/<[^>]+>/g, '');
+    return t.value.trim();
+  };
+  function jsonStrAt(html, i) { // строка JSON, начинающаяся сразу после открывающей кавычки
+    let j = i;
+    while (j < html.length && html[j] !== '"') j += html[j] === '\\' ? 2 : 1;
+    try { return JSON.parse('"' + html.slice(i, j) + '"'); } catch { return ''; }
+  }
+  function extractDesc(html, id) {
+    let m = html.match(/<div[^>]*(?:data-marker="item-view\/item-description"|itemprop="description")[^>]*>([\s\S]{0,30000}?)<\/div>/);
+    if (m) { const t = htmlToText(m[1]); if (t.length >= 15) return t; }
+    // JSON страницы: "description":"…" рядом с номером этого объявления (не похожих)
+    let best = '';
+    const re = /"description":"/g;
+    let x;
+    while ((x = re.exec(html))) {
+      if (!html.slice(Math.max(0, x.index - 4000), x.index + 4000).includes(id)) continue;
+      const t = jsonStrAt(html, x.index + x[0].length);
+      if (t.length > best.length) best = t;
+    }
+    if (best.length >= 15) return htmlToText(best);
+    m = html.match(/<meta[^>]+(?:property="og:description"|itemprop="description")[^>]+content="([^"]*)"/);
+    return m ? htmlToText(m[1]) : '';
+  }
+  async function descFetch(it) {
+    const u = new URL(it.url);
+    const res = await fetch(location.origin + u.pathname, { credentials: 'omit', referrerPolicy: 'no-referrer' });
+    if (res.status === 404 || res.status === 410) return { text: '' };
+    const html = await res.text();
+    const text = extractDesc(html, it.id);
+    if (res.status === 429 || res.status === 403 || (!text && /captcha|Доступ ограничен|firewall/i.test(html.slice(0, 30000)))) return { blocked: true };
+    return { text };
+  }
+
+  async function descRun() {
+    if (descRunning || feedRunning || mergeRunning || !loadOpts().desc) return 0;
+    if (document.visibilityState !== 'visible' && !loadOpts().hiddenTab) return 0;
+    const st = loadDescSt();
+    if (Date.now() < (st.pauseUntil || 0) || Date.now() - +GM_getValue('descLock', 0) < 30000) return 0; // пауза или качает другая вкладка
+    const todo = descCandidates().slice(0, DESC.perRun);
+    if (!todo.length) return 0;
+    descRunning = true;
+    const got = {};
+    let n = 0, ok = 0, fail = 0, blocked = false, lastFail = '';
+    const save = () => { // пачкой: лента весит мегабайты
+      const ids = Object.keys(got);
+      if (!ids.length) return;
+      const feed = loadFeed();
+      for (const id of ids) if (feed[id]) Object.assign(feed[id], got[id]);
+      saveFeed(feed);
+      // паль нашлась по описанию — запоминаем у продавца: остальные его вещи тоже станут подозрительнее
+      const byId = new Map(loadRO().map((s) => [s.id, s]));
+      const ctx = { ...hideCtx(), feed }, db = palDbLoad();
+      for (const id of ids) {
+        const it = feed[id];
+        if (it && it.fullDesc && it.sellerKey && db[it.sellerKey] && palVerdict(it, ctx, byId.get(it.sid))) { pushCap(db[it.sellerKey].bad, id, 5); palDbDirty = true; }
+      }
+      try { palDbSave(); } catch { /* не критично */ }
+      ids.forEach((id) => delete got[id]);
+      updateFabBadge();
+      if (feedUi) feedUi.partial();
+    };
+    try {
+      for (const it of todo) {
+        if (feedRunning || mergeRunning) break; // проверке поисков не мешаем
+        GM_setValue('descLock', String(Date.now()));
+        let r;
+        try { r = await descFetch(it); } catch { continue; } // сеть — попробуем в следующий раз
+        if (r.blocked) { blocked = true; break; }
+        const text = r.text.replace(/[ \t ]+/g, ' ').replace(/\n\s*\n+/g, '\n').slice(0, DESC.keep);
+        got[it.id] = { fullDesc: text, descAt: Date.now() };
+        if (text) ok++; else { fail++; lastFail = it.url; }
+        if (++n % 4 === 0) save();
+        await sleep(DESC.gap + Math.random() * 1500);
+      }
+    } finally {
+      save();
+      const st2 = loadDescSt();
+      const pause = blocked ? Math.min(DESC.maxPause, st2.lastPause ? st2.lastPause * 2 : DESC.pause) : 0;
+      saveDescSt({ ok: (st2.ok || 0) + ok, fail: (st2.fail || 0) + fail, lastPause: pause,
+        ...(lastFail ? { lastFail } : {}), ...(blocked ? { pauseUntil: Date.now() + pause } : {}) });
+      GM_setValue('descLock', '0');
+      descRunning = false;
+    }
+    return n;
+  }
+  setInterval(() => { descRun(); }, 45000);
+  function descStatus() {
+    const st = loadDescSt();
+    if (!loadOpts().desc) return '📄 Загрузка описаний выключена (⚙️).';
+    const p = (st.pauseUntil || 0) - Date.now();
+    return `📄 Описаний скачано: ${st.ok || 0}, страниц без описания: ${st.fail || 0}` +
+      (p > 0 ? ` · Авито попросил паузу, продолжу через ${Math.ceil(p / 60000)} мин` : '');
+  }
+
   function openFeedOpts() {
     modal('⚙️ Настройки ленты', (box, close) => {
       const o = loadOpts();
@@ -1524,6 +1661,10 @@
       row('notify', '🔔 Уведомлять о новых объявлениях', 'Когда фоновая проверка нашла новое, а вы смотрите не на Авито. Не чаще раза в минуту.');
       row('hiddenTab', '🌙 Проверять, даже когда вкладка Авито не на экране',
         'Для ПК: оставьте одну вкладку Авито открытой в фоне — скрипт будет проверять поиски и присылать уведомления. На телефоне браузер обычно усыпляет фоновые вкладки.');
+      row('desc', '📄 Загружать описания новых вещей для детектора пали',
+        'В выдаче Авито описания нет, а «все размеры в наличии» пишут именно там. Страница скачивается анонимно, без ваших cookie — рекомендации не портятся. По одной раз в несколько секунд.');
+      const ds = el('div', null, descStatus()); ds.style.cssText = 'color:#555;font-size:12px;margin:4px 0 0 24px';
+      box.append(ds);
       const test = mbtn('Проверить уведомление');
       test.onclick = () => {
         if (typeof GM_notification !== 'function') { alert('Уведомления недоступны в этом браузере или Tampermonkey.'); return; }
@@ -1632,10 +1773,10 @@
     if ((it.sellerKey && sellers[it.sellerKey]) || (it.sellerName && sellers['name:' + it.sellerName.toLowerCase()])) {
       return `продавец «${it.sellerName || it.sellerKey}» у вас в скрытых`;
     }
-    const text = norm(it.title + '\n' + it.desc + '\n' + (it.params || ''));
-    const g = loadGlobal().find((w) => hasWord(text, w));
+    const text = itemText(it);
+    const g = findWord(text, loadGlobal());
     if (g) return `сработало общее стоп-слово «${g}»`;
-    const own = ((search && search.ban) || []).find((w) => hasWord(text, w));
+    const own = findWord(text, (search && search.ban) || []);
     if (own) return `сработало стоп-слово поиска «${own}»`;
     if (insoleMismatch(it, search)) return 'в описании указана другая длина стельки';
     const sz = sizeMismatch(it, search);
@@ -2060,6 +2201,7 @@
         };
         box.append(bAll);
       }
+      box.append(el('span', null, descStatus()));
       const bTog = el('button', null, palOn() ? 'Выключить фильтр' : 'Включить фильтр пали');
       bTog.onclick = () => { GM_setValue('palOff', palOn() ? '1' : ''); updateFabBadge(); draw(); };
       box.append(bTog);
@@ -2095,6 +2237,7 @@
       if (!r) { setStatus('Проверка уже идёт — найденное появится само.'); return; }
       setStatus(r.problem ? '⚠️ ' + r.problem : r.busy ? 'Проверка уже идёт в другой вкладке' : null);
       liveUpdate();
+      descRun(); // описания новых — для детектора пали
     }
     refresh.onclick = () => run(0);
     allSeen.onclick = () => {
@@ -2856,7 +2999,7 @@
       const text = words.length ? cardText(card) : '';
       // связкам «бренд+слово» нужен и бренд — он есть только в полном тексте карточки
       const full = words.some((w) => w.includes('+')) ? text + '\n' + norm(card.textContent || '') : text;
-      const hit = words.find((w) => hasWord(w.includes('+') ? full : text, w));
+      const hit = findWord(text, words.filter((w) => !w.includes('+'))) || findWord(full, words.filter((w) => w.includes('+')));
       if (hit) {
         hidden++;
         if (card.dataset.amsWord !== hit) {
