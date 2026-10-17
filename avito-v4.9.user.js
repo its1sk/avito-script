@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Avito — скрыть продавцов + мои поиски
 // @namespace    avito-seller-blocker
-// @version      4.8
+// @version      4.9
 // @description  Скрытие продавцов, сохранённые поиски, стоп-слова, лента новых объявлений по всем поискам
 // @match        https://www.avito.ru/*
 // @match        https://m.avito.ru/*
@@ -9,6 +9,7 @@
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
 // @grant        GM_setClipboard
+// @grant        GM_notification
 // @run-at       document-idle
 // ==/UserScript==
 
@@ -357,6 +358,15 @@
   .amf-palbox span{flex:1 1 260px}
   .amf-palbox button{border:1px solid #e0c060;background:#fff;border-radius:8px;padding:5px 10px;font-size:12px;cursor:pointer}
   .amf-empty{grid-column:1/-1;text-align:center;color:#777;padding:48px 16px;font-size:15px}
+  .amf-card.kb{outline:2px solid #00aaff;outline-offset:1px}
+  .amf-old{margin-left:8px;color:#2e7d32;font-size:12px;font-weight:600}
+  .amf-actions button.on{background:#ffebee;border-color:#ffcdd2}
+  .amf-cat.amf-sort{margin-left:auto;font-weight:400}
+  .amf-pill{position:absolute;left:50%;transform:translateX(-50%);bottom:78px;z-index:2;border:none;border-radius:20px;
+    background:#00aaff;color:#fff;padding:10px 18px;font:600 14px Arial,sans-serif;box-shadow:0 4px 14px rgba(0,0,0,.25);cursor:pointer;white-space:nowrap}
+  .amf-toast{position:absolute;left:50%;transform:translateX(-50%);bottom:24px;z-index:3;display:flex;gap:14px;align-items:center;
+    background:#222;color:#fff;padding:10px 16px;border-radius:10px;font-size:14px;box-shadow:0 4px 14px rgba(0,0,0,.25);white-space:nowrap}
+  .amf-toast button{border:none;background:none;color:#4fc3f7;font:600 14px Arial,sans-serif;cursor:pointer;padding:0}
   @media (max-width:600px){.amf-img{width:96px;height:96px}.amf-top h2{font-size:16px}}
   .ams-new{display:inline-block;margin:0 0 6px;padding:2px 8px;border-radius:6px;background:#2fbf71;color:#fff;
     font:700 11px/1.6 Arial,sans-serif;letter-spacing:.3px}
@@ -458,7 +468,7 @@
     const data = { ...fullState(), copiedAt: Date.now() };
     const code = await encode(data);
     const summary = `Полная копия: поисков ${data.searches.length}, стоп-слов для всех ${data.global.length}, ` +
-      `скрытых продавцов ${Object.keys(data.sellers).length}, объявлений в ленте ${Object.keys(data.feed).length}. ` +
+      `скрытых продавцов ${Object.keys(data.sellers).length}, объявлений в ленте ${Object.keys(data.feed).length}, отложенных ${Object.keys(data.favs).length}. ` +
       'На другом устройстве она заменит всё, что там было.';
     const fits = code.length <= MAX_MSG;
     modal('📤 Перенос на другое устройство', (box, close) => {
@@ -682,6 +692,29 @@
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const fmtPrice = (p) => (p ? p.toLocaleString('ru-RU') + ' ₽' : 'цена не указана');
 
+  // ❤️ Отложенные: копии объявлений, которые не пропадут из ленты, пока вы их не уберёте сами
+  const FAV_KEY = 'favItems', FAV_MAX = 500;
+  const loadFavs = () => { try { return JSON.parse(GM_getValue(FAV_KEY, '{}')) || {}; } catch { return {}; } };
+  const loadFavRO = () => peekJSON(FAV_KEY, '{}'); // НЕ менять то, что вернула
+  const saveFavs = (f) => GM_setValue(FAV_KEY, JSON.stringify(f));
+  function toggleFav(it) { // true — теперь в отложенных
+    const f = loadFavs();
+    if (f[it.id]) delete f[it.id];
+    else {
+      const { id, sid, sname, title, url, price, oldPrice, img, city, params, sellerName, sellerKey, ts } = it;
+      f[id] = { id, sid, sname, title, url, price, oldPrice, img, city, params, sellerName, sellerKey, ts, favAt: it.favAt || Date.now() };
+      const ids = Object.keys(f);
+      if (ids.length > FAV_MAX) ids.sort((a, b) => f[a].favAt - f[b].favAt).slice(0, ids.length - FAV_MAX).forEach((k) => delete f[k]);
+    }
+    saveFavs(f);
+    return !!f[it.id];
+  }
+
+  // настройки ленты
+  const OPT_KEY = 'amsOpts';
+  const loadOpts = () => ({ notify: true, hiddenTab: false, sort: 'date', ...peekJSON(OPT_KEY, '{}') });
+  const saveOpt = (k, v) => GM_setValue(OPT_KEY, JSON.stringify({ ...peekJSON(OPT_KEY, '{}'), [k]: v }));
+
   function cardPrice(c) {
     const toNum = (t) => {
       if (!t) return 0;
@@ -903,6 +936,17 @@
     }
     return f;
   }
+  // то же при разборе выдачи: одни и те же объявления приходят при каждой проверке — регулярки гоняем один раз
+  const palMemo = new Map();
+  function palFeaturesMemo(id, a) {
+    const key = `${id}|${a.price}|${a.closed}|${a.sellerName}|${a.params}|${a.title}|${a.desc.length}`;
+    let f = palMemo.get(key);
+    if (!f) {
+      if (palMemo.size > 20000) palMemo.clear();
+      f = palFeatures(a); palMemo.set(key, f);
+    }
+    return f;
+  }
 
   // одинаковые новые вещи: у одного продавца по одной цене или у разных продавцов (сеть магазинов пали)
   function palDupIndex(feed) {
@@ -1110,7 +1154,7 @@
         ts: +o.sortTimeStamp,
         sellerKey, sellerName,
         closed,
-        pal: palFeatures({ title: o.title || '', desc: String(o.description || ''), params, sellerName, closed, price: (o.priceDetailed && +o.priceDetailed.value) || 0 }),
+        pal: palFeaturesMemo(id, { title: o.title || '', desc: String(o.description || ''), params, sellerName, closed, price: (o.priceDetailed && +o.priceDetailed.value) || 0 }),
         extra: exFrom >= 0 && m.index > exFrom && (exTo < 0 || m.index < exTo),
       });
     }
@@ -1190,18 +1234,28 @@
     const stale = [], skips = S.skips;
     let found = 0;
     for (const it of items) {
+      const fv = S.favs[it.id]; // отложенное попалось в выдаче — запоминаем новую цену
+      if (fv && it.price && fv.price !== it.price) { fv.price = it.price; S.favPrice.set(it.id, it.price); }
       if (seen.has(it.id)) continue;
-      if (feed[it.id]) { // уже в ленте — освежаем данные (цена могла измениться), не трогая отметки
-        const { found: f, shownAt, bumped, fullDesc, descAt } = feed[it.id];
-        let { sid } = feed[it.id];
+      const prev = feed[it.id];
+      if (prev) { // уже в ленте — освежаем данные (цена могла измениться), не трогая отметки
+        if (prev.seenAt) continue; // вы его уже скрыли
+        let { sid } = prev;
         // Авито подмешал вещь в чужой поиск, и её скрыли как «бренд/размер не тот» — а этот поиск находит её как свою:
         // переносим вещь к нему, иначе она так и осталась бы скрытой за первым поиском
         if (sid !== cs.id) {
           const os = S.mem.get(sid);
-          const why = os ? feedHideReason(feed[it.id], os, ctx) : 'gone';
+          const why = os ? feedHideReason(prev, os, ctx) : 'gone';
           if ((why === 'brand' || why === 'size' || why === 'gone') && !feedHideReason(it, cs, ctx)) sid = cs.id;
         }
-        feed[it.id] = { ...it, sid, found: f, shownAt, bumped, fullDesc, descAt };
+        // ничего не поменялось — ленту не переписываем (раньше каждая проверка заново сохраняла её целиком)
+        if (sid === prev.sid && it.price === prev.price && it.ts === prev.ts && it.title === prev.title && it.params === prev.params &&
+          it.desc === prev.desc && it.img === prev.img && it.sellerKey === prev.sellerKey && it.sellerName === prev.sellerName && it.closed === prev.closed) continue;
+        // цена поменялась — помним первую, чтобы показать «📉 было …»
+        let oldPrice = prev.oldPrice;
+        if (prev.price && it.price && it.price !== prev.price) oldPrice = prev.oldPrice || prev.price;
+        if (oldPrice === it.price) oldPrice = undefined;
+        feed[it.id] = { ...it, sid, found: prev.found, shownAt: prev.shownAt, bumped: prev.bumped, fullDesc: prev.fullDesc, descAt: prev.descAt, oldPrice };
         S.touched.add(it.id);
         continue;
       }
@@ -1229,7 +1283,7 @@
     const patches = new Map();
     const feed = loadFeed();
     const S = {
-      mem, feed, touched: new Set(), skips: [],
+      mem, feed, touched: new Set(), skips: [], favs: loadFavs(), favPrice: new Map(),
       patch: (id) => { if (!patches.has(id)) patches.set(id, { fields: {}, seenAdd: new Set() }); return patches.get(id); },
       flush() {
         if (S.touched.size) {
@@ -1237,7 +1291,7 @@
           for (const id of S.touched) {
             const mine = feed[id]; if (!mine) continue;
             const cur = f[id];
-            f[id] = cur ? { ...mine, shownAt: cur.shownAt || mine.shownAt, fullDesc: cur.fullDesc || mine.fullDesc, descAt: cur.descAt || mine.descAt } : mine;
+            f[id] = cur ? { ...mine, shownAt: cur.shownAt || mine.shownAt, seenAt: cur.seenAt || mine.seenAt, fullDesc: cur.fullDesc || mine.fullDesc, descAt: cur.descAt || mine.descAt } : mine;
             feed[id] = f[id];
           }
           saveFeed(f); S.touched.clear();
@@ -1251,6 +1305,17 @@
           }
           save(list); patches.clear();
         }
+        if (S.favPrice.size) {
+          const fv = loadFavs(); let ch = false;
+          for (const [id, p] of S.favPrice) {
+            const x = fv[id]; if (!x || x.price === p) continue;
+            if (!x.oldPrice) x.oldPrice = x.price;
+            x.price = p; x.priceAt = Date.now(); ch = true;
+            if (x.oldPrice === p) delete x.oldPrice;
+          }
+          S.favPrice.clear();
+          if (ch) saveFavs(fv);
+        }
         if (S.skips.length) { logSkip(S.skips.splice(0)); }
         try { palDbSave(); } catch { /* не критично */ }
       },
@@ -1262,7 +1327,7 @@
   // Чистим ленту от лишнего. Непросмотренные объявления НЕ трогаем (раньше обрезали всё подряд до 400 —
   // и после долгого перерыва большая часть новых пропадала). Режем только просмотренные и скрытые фильтрами.
   // номер версии кода: вкладка со старой версией, увидев более новую, перестаёт проверять в фоне
-  const CODE_VER = 48;
+  const CODE_VER = 49;
   if (+GM_getValue('codeVer', 0) < CODE_VER) GM_setValue('codeVer', CODE_VER);
   const PENDING_MAX = 5000; // аварийный потолок для непросмотренных
   function trimFeed(feed) {
@@ -1274,7 +1339,7 @@
     for (const [id, it] of Object.entries(feed)) {
       const s = byId[it.sid];
       if (!s) { delete feed[id]; continue; }                // поиск удалён
-      (seenSets[it.sid].has(id) || feedHideReason(it, s, ctx) ? rest : pending).push(id);
+      (it.seenAt || seenSets[it.sid].has(id) || feedHideReason(it, s, ctx) ? rest : pending).push(id);
     }
     const byFound = (a, b) => feed[b].found - feed[a].found;
     rest.sort(byFound).slice(FEED_LIMIT).forEach((id) => delete feed[id]);
@@ -1406,16 +1471,18 @@
   const overdue = (s, now) => (now - (s.lastCheckAt || 0)) / wantEvery(s);
 
   async function backgroundTick() {
-    if (document.visibilityState !== 'visible' || feedRunning || mergeRunning || !loadRO().length) return;
-    if (document.getElementById('ams-feed')) return; // в открытой ленте проверка своя
+    if ((document.visibilityState !== 'visible' && !loadOpts().hiddenTab) || feedRunning || mergeRunning || !loadRO().length) return;
     const bg = loadBg(), now = Date.now();
     if (now < (bg.pauseUntil || 0) || now - (loadMeta().lastCheck || 0) < BG.minGap) return;
     const batch = bg.batch || BG.start;
     const due = loadRO().map((s) => [s, overdue(s, now)]).filter(([, o]) => o >= 1).sort((a, b) => b[1] - a[1]);
     if (!due.length) return;
     const pick = due.slice(0, batch).map(([s]) => s.id);
-    const r = await checkAll(null, null, 0, pick);
+    // в открытой ленте найденное появляется само, не сбивая прокрутку
+    const r = await checkAll(null, () => feedUi && feedUi.partial(), 0, pick);
     if (!r || r.busy) return;
+    if (feedUi) feedUi.done(r);
+    if (r.found) notifyNew(now);
     if (r.blocked) { // Авито просит паузу — вдвое медленнее и отдыхаем
       saveBg({ batch: Math.max(BG.min, Math.floor(batch / 2)), pauseUntil: Date.now() + BG.pause, lastBlock: Date.now() });
     } else if (pick.length >= batch) { // всё прошло, а очередь была полной — можно чуть быстрее
@@ -1424,6 +1491,48 @@
   }
   setTimeout(backgroundTick, 4000);
   setInterval(backgroundTick, 60000);
+
+  // 🔔 уведомление о новых, когда вы не смотрите на вкладку Авито (хорошие вещи разбирают быстро)
+  let lastNotify = 0;
+  function notifyNew(since) {
+    if (!loadOpts().notify || typeof GM_notification !== 'function') return;
+    if (document.visibilityState === 'visible' && document.hasFocus()) return; // вы и так смотрите на Авито
+    const fresh = pendingItems().filter((x) => !x.pv && !x.shownAt && x.found >= since);
+    if (!fresh.length || Date.now() - lastNotify < 60000) return;
+    lastNotify = Date.now();
+    const text = fresh.slice(0, 3).map((x) => `${fmtPrice(x.price)} — ${x.title}`).join('\n') +
+      (fresh.length > 3 ? `\n…и ещё ${fresh.length - 3}` : '');
+    try {
+      GM_notification({ title: `⭐ Авито: новых ${fresh.length}`, text, timeout: 20000,
+        onclick: () => { try { window.focus(); } catch { /* ничего */ } if (feedUi) feedUi.show(); else openFeed(false); } });
+    } catch { /* уведомления недоступны */ }
+  }
+
+  function openFeedOpts() {
+    modal('⚙️ Настройки ленты', (box, close) => {
+      const o = loadOpts();
+      const row = (key, text, hint) => {
+        const l = el('label'); l.style.cssText = 'display:flex;gap:8px;align-items:flex-start;margin:10px 0;cursor:pointer';
+        const c = el('input'); c.type = 'checkbox'; c.checked = !!o[key]; c.style.marginTop = '3px';
+        c.onchange = () => saveOpt(key, c.checked);
+        const t = el('div', null, text);
+        const s = el('div', null, hint); s.style.cssText = 'color:#777;font-size:12px;margin-top:2px';
+        t.append(s); l.append(c, t); box.append(l);
+      };
+      row('notify', '🔔 Уведомлять о новых объявлениях', 'Когда фоновая проверка нашла новое, а вы смотрите не на Авито. Не чаще раза в минуту.');
+      row('hiddenTab', '🌙 Проверять, даже когда вкладка Авито не на экране',
+        'Для ПК: оставьте одну вкладку Авито открытой в фоне — скрипт будет проверять поиски и присылать уведомления. На телефоне браузер обычно усыпляет фоновые вкладки.');
+      const test = mbtn('Проверить уведомление');
+      test.onclick = () => {
+        if (typeof GM_notification !== 'function') { alert('Уведомления недоступны в этом браузере или Tampermonkey.'); return; }
+        try { GM_notification({ title: '⭐ Авито: так выглядит уведомление', text: '5 000 ₽ — пример объявления', timeout: 8000 }); } catch (e) { alert('Не вышло: ' + e.message); }
+      };
+      const ok = mbtn('Готово', true); ok.onclick = close;
+      const keys = el('div', null, 'Клавиши в ленте (ПК): J / K — следующее / предыдущее, O или Enter — открыть, X — скрыть, F — отложить.');
+      keys.style.cssText = 'color:#555;font-size:12px;margin-top:6px';
+      box.append(keys, test, ok);
+    });
+  }
 
 
   // объявления, которые ещё не просмотрены (нет в seen своего поиска) и не скрыты
@@ -1450,22 +1559,33 @@
       const s = byId[it.sid];
       if (!s) continue;
       if (!seenSets[s.id]) seenSets[s.id] = new Set(s.seen || []);
-      if (seenSets[s.id].has(it.id)) continue;
+      if (it.seenAt || seenSets[s.id].has(it.id)) continue;
       if (feedHideReason(it, s, ctx)) continue;
       out.push({ ...it, sname: s.name, pv: palVerdict(it, ctx, s) });
     }
     return out.sort((a, b) => (b.ts || b.found) - (a.ts || a.found));
   }
 
-  function markSeen(ids) {
-    const want = new Set(ids);
-    const feed = loadFeed();
+  // Отметку ставим и на само объявление в ленте (seenAt): список «просмотрено» у поиска ограничен 500 —
+  // раньше при «Всё просмотрено» на 600 объявлений одного поиска часть из них так и оставалась в ленте.
+  // unmark — отменить отметку (кнопка «Отменить»)
+  function markSeen(ids, unmark = false) {
+    const feed = loadFeed(), now = Date.now();
+    const bySid = new Map();
+    for (const id of ids) {
+      const it = feed[id]; if (!it) continue;
+      if (unmark) delete it.seenAt; else it.seenAt = now;
+      if (!bySid.has(it.sid)) bySid.set(it.sid, []);
+      bySid.get(it.sid).push(id);
+    }
+    if (!bySid.size) return;
     const list = load();
     for (const s of list) {
-      const add = [...want].filter((id) => feed[id] && feed[id].sid === s.id);
-      if (add.length) s.seen = [...new Set([...add, ...(s.seen || [])])].slice(0, SEEN_LIMIT);
+      const add = bySid.get(s.id); if (!add) continue;
+      if (unmark) { const drop = new Set(add); s.seen = (s.seen || []).filter((x) => !drop.has(x)); }
+      else s.seen = [...new Set([...add, ...(s.seen || [])])].slice(0, SEEN_LIMIT);
     }
-    save(list);
+    save(list); saveFeed(feed);
     updateFabBadge();
   }
 
@@ -1478,6 +1598,10 @@
     const fabEl = document.getElementById('ams-fab');
     if (!fabEl) return;
     const n = pendingItems().filter((x) => !x.shownAt && !x.pv).length;
+    // число новых и в заголовке вкладки — видно, даже когда смотрите другую вкладку
+    const base = document.title.replace(/^\(\d+\+?\) /, '');
+    const want = n ? `(${n > 99 ? '99+' : n}) ${base}` : base;
+    if (document.title !== want) document.title = want;
     let b = fabEl.querySelector('.ams-badge');
     if (!n) { b?.remove(); return; }
     if (!b) { b = el('span', 'ams-badge'); fabEl.append(b); }
@@ -1530,7 +1654,7 @@
     if (feed[id]) {
       const it = feed[id], s = byId[it.sid];
       const hd = hideDetail(it, s);
-      if (s && (s.seen || []).includes(id)) ans = `Оно было в ленте (поиск ${name(it.sid)}), но отмечено просмотренным — кнопкой «✓ Скрыть», «Всё просмотрено» или потому, что вы открывали этот поиск на сайте.`;
+      if (s && (it.seenAt || (s.seen || []).includes(id))) ans = `Оно было в ленте (поиск ${name(it.sid)}), но отмечено просмотренным — кнопкой «✓ Скрыть», «Всё просмотрено» или потому, что вы открывали этот поиск на сайте.`;
       else if (hd) ans = `Найдено поиском ${name(it.sid)}, но скрыто: ${hd}.`;
       else if (palVerdict(it, null, s)) ans = `Оно во вкладке «🇨🇳 Похоже на паль» (поиск ${name(it.sid)}). Причины: ${palVerdict(it, null, s).why.join('; ')}.`;
       else ans = `Оно есть в ленте (поиск ${name(it.sid)}) — во вкладке «Новые» или «Уже показывались».`;
@@ -1546,12 +1670,21 @@
     if (redraw) redraw();
   }
 
+  // свежее — «12 мин назад»: по нему видно, успеете ли первым
+  function fmtAge(ts) {
+    const m = Math.floor((Date.now() - ts) / 60000);
+    return m >= 0 && m < 60 ? (m < 1 ? 'только что' : `${m} мин назад`) : fmtWhen(ts);
+  }
+
+  let feedUi = null; // открытая лента: фоновая проверка показывает в ней найденное
   function openFeed(autoCheck = true) {
     closePanel();
+    if (feedUi) feedUi.shut();
     document.getElementById('ams-feed')?.remove();
     const root = el('div'); root.id = 'ams-feed';
     const top = el('div', 'amf-top');
     const h = el('h2', null, '🆕 Новые объявления');
+    h.title = 'Клавиши: J / K — следующее / предыдущее, O или Enter — открыть, X — скрыть, F — отложить';
     const refresh = el('button', 'ams-btn primary', '🔄 Проверить');
     const allSeen = el('button', 'ams-btn', '✓ Всё просмотрено');
     const close = el('button', 'ams-btn', '✕'); close.id = 'amf-close';
@@ -1578,7 +1711,9 @@
         : 'В журнале нет пропавших объявлений за это время. Всё равно перепроверю поиски — вернётся то, что ещё есть в выдаче.');
       run(0);
     };
-    top.append(h, refresh, allSeen, why, back, close, status, chips);
+    const optBtn = el('button', 'ams-btn', '⚙️'); optBtn.title = 'Настройки: уведомления, проверка в фоне, клавиши';
+    optBtn.onclick = openFeedOpts;
+    top.append(h, refresh, allSeen, why, back, optBtn, close, status, chips);
     const listEl = el('div', 'amf-list');
     root.append(top, listEl);
     document.body.append(root);
@@ -1609,108 +1744,266 @@
       return searchCat[it.sid];
     };
 
+    // Отметки «показано» и «скрыто» копим и пишем пачкой: лента в хранилище весит мегабайты,
+    // и раньше каждое нажатие «✓ Скрыть» переписывало её и перерисовывало все карточки заново.
+    const shownQ = new Set(); let shownT = null;
     function markShown(ids) {
       if (!ids.length) return;
-      const feed = loadFeed();
-      const now = Date.now();
-      ids.forEach((id) => { if (feed[id] && !feed[id].shownAt) feed[id].shownAt = now; });
-      saveFeed(feed);
-      updateFabBadge();
+      ids.forEach((id) => shownQ.add(id));
+      if (!shownT) shownT = setTimeout(flushShown, 1500);
     }
-    const shut = () => { root.remove(); document.body.style.overflow = ''; if (location.hash === '#novye') history.replaceState(null, '', location.pathname + location.search); };
+    function flushShown() {
+      clearTimeout(shownT); shownT = null;
+      if (!shownQ.size) return;
+      const feed = loadFeed(), now = Date.now();
+      let ch = false;
+      shownQ.forEach((id) => { if (feed[id] && !feed[id].shownAt) { feed[id].shownAt = now; ch = true; } });
+      shownQ.clear();
+      if (ch) { saveFeed(feed); updateFabBadge(); }
+    }
+    const hideQ = new Set(); let hideT = null;
+    function queueHide(ids) { ids.forEach((id) => hideQ.add(id)); clearTimeout(hideT); hideT = setTimeout(flushHide, 700); }
+    function commitHides() {
+      clearTimeout(hideT); hideT = null;
+      if (!hideQ.size) return false;
+      const ids = [...hideQ]; hideQ.clear();
+      markSeen(ids);
+      return true;
+    }
+    function flushHide() { if (commitHides() && root.isConnected) drawHead(compute()); }
+
+    function onKey(e) { // J/K/O/X/F — разбирать ленту с клавиатуры
+      if (e.altKey || e.ctrlKey || e.metaKey || e.shiftKey || document.getElementById('ams-modal')) return;
+      const tg = e.target || {};
+      if (/^(INPUT|TEXTAREA|SELECT)$/.test(tg.tagName || '') || tg.isContentEditable) return;
+      const k = e.code;
+      if (k === 'KeyJ' || k === 'KeyK') {
+        e.preventDefault();
+        if (k === 'KeyJ' && kbIdx >= drawnN - 2 && drawnN < curShown.length) appendCards(drawnN + PAGE_N);
+        kbFocus(kbIdx < 0 ? 0 : kbIdx + (k === 'KeyJ' ? 1 : -1));
+        return;
+      }
+      const it = kbIdx >= 0 ? curShown[kbIdx] : null;
+      const card = it && cardEls.get(it.id);
+      if (!card) return;
+      if (k === 'KeyO' || (k === 'Enter' && tg.tagName !== 'BUTTON')) { e.preventDefault(); card.querySelector('.amf-title').click(); }
+      else if (k === 'KeyX') { e.preventDefault(); card.querySelector('[data-act="hide"]')?.click(); }
+      else if (k === 'KeyF') { e.preventDefault(); card.querySelector('[data-act="fav"]')?.click(); }
+    }
+    document.addEventListener('keydown', onKey);
+
+    const shut = () => {
+      commitHides(); flushShown();
+      if (feedUi && feedUi.root === root) feedUi = null;
+      document.removeEventListener('keydown', onKey);
+      root.remove(); document.body.style.overflow = '';
+      if (location.hash === '#novye') history.replaceState(null, '', location.pathname + location.search);
+    };
     close.onclick = shut;
 
     const PAGE_N = 100;             // сколько карточек рисуем за раз — тысяча сразу тормозит
     let limitN = PAGE_N;
-    let drawTimer = null;
-    // во время проверки перерисовываем не чаще раза в 3 с (раньше — после каждого поиска)
-    const drawSoon = () => { if (!drawTimer) drawTimer = setTimeout(() => { drawTimer = null; draw(); }, 3000); };
+    let drawTimer = null, headTimer = null;
+    // во время проверки обновляем не чаще раза в 3 с (раньше — после каждого поиска)
+    const drawSoon = () => { if (!drawTimer) drawTimer = setTimeout(() => { drawTimer = null; liveUpdate(); }, 3000); };
+    const headSoon = () => { clearTimeout(headTimer); headTimer = setTimeout(() => { if (root.isConnected) drawHead(compute()); }, 400); };
     const resetView = () => { limitN = PAGE_N; listEl.scrollTop = 0; };
+    const sortBy = () => loadOpts().sort;
 
-    function draw() {
-      if (drawTimer) { clearTimeout(drawTimer); drawTimer = null; }
-      const keepScroll = listEl.scrollTop;
+    // что показать: вкладка → тип вещей → бренд → сортировка
+    function compute() {
+      commitHides();
       const all = pendingItems();
       const palItems = all.filter((x) => x.pv);
       const normal = all.filter((x) => !x.pv);
       const fresh = normal.filter(isNew);
       const old = normal.filter((x) => !isNew(x));
-      tabs.textContent = '';
-      [['new', `🆕 Новые (${fresh.length})`, 'Появились с прошлого открытия ленты'],
-       ['old', `👁 Уже показывались (${old.length})`, 'Лента их уже показывала, но вы их не скрыли'],
-       ['pal', `🇨🇳 Похоже на паль (${palItems.length})`, 'Магазины реплик: новое с биркой, много размеров, «люкс качество»… Не удалены — проверьте сами']]
-        .forEach(([key, label, hint]) => {
-          const b = el('button', 'amf-tab' + (tab === key ? ' on' : ''), label); b.title = hint;
-          b.onclick = () => { tab = key; filterSid = null; resetView(); draw(); };
-          tabs.append(b);
-        });
-      const tabItems = tab === 'new' ? fresh : tab === 'old' ? old : palItems;
+      const favs = Object.values(loadFavRO()).sort((a, b) => b.favAt - a.favAt);
+      const tabItems = tab === 'new' ? fresh : tab === 'old' ? old : tab === 'pal' ? palItems : favs;
       const byCat = { all: tabItems.length, odezhda: 0, obuv: 0, aks: 0 };
       tabItems.forEach((it) => { const c = catOf(it); if (c in byCat) byCat[c]++; });
-      catTabs.textContent = '';
-      [['all', 'Всё'], ['odezhda', '👕 Одежда'], ['obuv', '👟 Обувь'], ['aks', '🕶 Аксессуары']].forEach(([key, label]) => {
-        const b = el('button', 'amf-cat' + (cat === key ? ' on' : ''), `${label} (${byCat[key]})`);
-        b.onclick = () => { cat = key; filterSid = null; resetView(); draw(); };
-        catTabs.append(b);
-      });
       const items = cat === 'all' ? tabItems : tabItems.filter((it) => catOf(it) === cat);
       if (filterSid && !items.some((x) => bKey(x) === filterSid)) filterSid = null;
       // плашки — по брендам из объявлений (поиски теперь общие на 7 брендов), самые частые первыми, в одну строку
       const counts = new Map(), label = {};
       items.forEach((it) => { const k = bKey(it); counts.set(k, (counts.get(k) || 0) + 1); if (!label[k]) label[k] = brandOf(it) || 'Без бренда'; });
+      let shown = filterSid ? items.filter((x) => bKey(x) === filterSid) : items;
+      if (sortBy() === 'price') shown = [...shown].sort((a, b) => (a.price || 1e9) - (b.price || 1e9));
+      return { n: { new: fresh.length, old: old.length, pal: palItems.length, fav: favs.length }, byCat, items, counts, label, shown };
+    }
+
+    function drawHead(c) {
+      tabs.textContent = '';
+      [['new', `🆕 Новые (${c.n.new})`, 'Появились с прошлого открытия ленты'],
+       ['old', `👁 Уже показывались (${c.n.old})`, 'Лента их уже показывала, но вы их не скрыли'],
+       ['pal', `🇨🇳 Похоже на паль (${c.n.pal})`, 'Магазины реплик: новое с биркой, много размеров, «люкс качество»… Не удалены — проверьте сами'],
+       ['fav', `❤️ Отложенные (${c.n.fav})`, 'Вещи, отложенные кнопкой 🤍: не пропадут, пока не уберёте сами. Если вещь снова попадётся в поиске, цена обновится']]
+        .forEach(([key, label, hint]) => {
+          const b = el('button', 'amf-tab' + (tab === key ? ' on' : ''), label); b.title = hint;
+          b.onclick = () => { tab = key; filterSid = null; resetView(); draw(); };
+          tabs.append(b);
+        });
+      catTabs.textContent = '';
+      [['all', 'Всё'], ['odezhda', '👕 Одежда'], ['obuv', '👟 Обувь'], ['aks', '🕶 Аксессуары']].forEach(([key, label]) => {
+        const b = el('button', 'amf-cat' + (cat === key ? ' on' : ''), `${label} (${c.byCat[key]})`);
+        b.onclick = () => { cat = key; filterSid = null; resetView(); draw(); };
+        catTabs.append(b);
+      });
+      const sb = el('button', 'amf-cat amf-sort', sortBy() === 'price' ? '↕ Сначала дешёвые' : '↕ Сначала свежие');
+      sb.title = 'Сортировка: по дате или по цене';
+      sb.onclick = () => { saveOpt('sort', sortBy() === 'price' ? 'date' : 'price'); resetView(); draw(); };
+      catTabs.append(sb);
       chips.textContent = '';
       const mkChip = (label, sid) => {
-        const c = el('button', 'amf-chip' + (filterSid === sid ? ' on' : ''), label);
-        c.onclick = () => { filterSid = sid; resetView(); draw(); };
-        chips.append(c);
+        const ch = el('button', 'amf-chip' + (filterSid === sid ? ' on' : ''), label);
+        ch.onclick = () => { filterSid = sid; resetView(); draw(); };
+        chips.append(ch);
       };
-      if (items.length) {
-        mkChip(`Все (${items.length})`, null);
-        [...counts].sort((a, b) => b[1] - a[1] || label[a[0]].localeCompare(label[b[0]])).forEach(([k, n]) => mkChip(`${label[k]} (${n})`, k));
+      if (c.items.length) {
+        mkChip(`Все (${c.items.length})`, null);
+        [...c.counts].sort((a, b) => b[1] - a[1] || c.label[a[0]].localeCompare(c.label[b[0]])).forEach(([k, n]) => mkChip(`${c.label[k]} (${n})`, k));
       }
-      const shown = filterSid ? items.filter((x) => bKey(x) === filterSid) : items;
+      allSeen.style.display = tab === 'fav' ? 'none' : '';
+    }
+
+    let curShown = [], drawnN = 0, moreBtn = null, pill = null, kbIdx = -1;
+    const cardEls = new Map(); // id → карточка на экране
+    function drawList(c) {
+      const keepScroll = listEl.scrollTop;
+      pill?.remove(); pill = null;
       listEl.textContent = '';
-      curShown = []; drawnN = 0; moreBtn = null;
-      if (tab === 'pal') listEl.append(palBox(shown));
-      if (!shown.length) {
+      cardEls.clear(); curShown = []; drawnN = 0; moreBtn = null; kbIdx = -1;
+      if (tab === 'pal') listEl.append(palBox(c.shown));
+      if (!c.shown.length) {
         listEl.append(el('div', 'amf-empty', !loadRO().length
           ? 'Сначала сохраните поиски: ⭐ → «+ Сохранить этот».'
+          : tab === 'fav' ? 'Отложенных нет. Нажмите «🤍 Отложить» у объявления — оно сохранится здесь, даже когда уйдёт из ленты.'
           : feedRunning ? 'Ищу новые…'
           : tab === 'pal' ? (palOn() ? 'Подозрительных объявлений нет 👌' : 'Фильтр пали выключен — всё показывается в обычных вкладках.')
-          : tab === 'new' ? 'Новых объявлений нет 👌' + (old.length ? ' Загляните во вкладку «Уже показывались».' : '')
+          : tab === 'new' ? 'Новых объявлений нет 👌' + (c.n.old ? ' Загляните во вкладку «Уже показывались».' : '')
           : 'Здесь пусто — всё, что лента показывала, вы уже разобрали.'));
         return;
       }
-      curShown = shown;
-      drawnN = 0;
+      curShown = c.shown;
       appendCards(limitN);
       listEl.scrollTop = keepScroll;
     }
+    function draw() {
+      if (drawTimer) { clearTimeout(drawTimer); drawTimer = null; }
+      const c = compute();
+      drawHead(c); drawList(c);
+    }
+    // найдено новое: если вы листаете ленту — не сдвигаем её, а показываем кнопку «⬆ Новых: N»
+    function liveUpdate() {
+      if (drawTimer) { clearTimeout(drawTimer); drawTimer = null; }
+      if (!root.isConnected) return;
+      if (!curShown.length || listEl.scrollTop < 60) { draw(); return; }
+      const c = compute();
+      drawHead(c);
+      const have = new Set(curShown.map((x) => x.id));
+      const add = c.shown.filter((x) => !have.has(x.id)).length;
+      if (!add) return;
+      if (!pill) { pill = el('button', 'amf-pill'); pill.onclick = () => { resetView(); draw(); }; root.append(pill); }
+      pill.textContent = `⬆ Новых: ${add} — показать`;
+    }
 
     // дорисовываем следующие карточки в конец (без перерисовки всего списка)
-    let curShown = [], drawnN = 0, moreBtn = null;
     function appendCards(upTo) {
-      moreBtn?.remove(); moreBtn = null;
       const page = curShown.slice(drawnN, upTo);
       drawnN += page.length; limitN = Math.max(limitN, drawnN);
       if (tab === 'new') markShown(page.filter((x) => !x.shownAt).map((x) => x.id)); // «показанными» считаем только нарисованные
-      for (const it of page) {
-        const card = el('div', 'amf-card' + (viewed.has(it.id) ? ' viewed' : ''));
-        const open = () => { window.open(it.url, '_blank'); viewed.add(it.id); card.classList.add('viewed'); };
-        const img = el('img', 'amf-img'); img.src = it.img; img.loading = 'lazy'; img.onclick = open;
-        const body = el('div', 'amf-body');
-        const t = el('div', 'amf-title', it.title); t.onclick = open;
-        body.append(t, el('div', 'amf-price', fmtPrice(it.price)),
-          el('div', 'amf-meta', [it.ts ? '🕒 ' + fmtWhen(it.ts) : '', it.bumped ? '♻️ перевыложено' : '', it.city, it.sellerName, '🔎 ' + it.sname].filter(Boolean).join(' · ')));
-        if (it.params) body.append(el('div', 'amf-meta', '🏷 ' + it.params));
-        if (it.pv) body.append(el('div', 'amf-pal', '🇨🇳 ' + it.pv.why.join(' · ')));
-        const dsc = it.desc || (it.fullDesc || '').slice(0, 300);
-        if (dsc) body.append(el('div', 'amf-desc', dsc));
-        const act = el('div', 'amf-actions');
-        const bOpen = el('button', null, '🔗 Открыть'); bOpen.onclick = open;
-        const bSeen = el('button', null, '✓ Скрыть'); bSeen.title = 'Убрать из ленты';
-        bSeen.onclick = () => { markSeen([it.id]); draw(); };
-        act.append(bOpen, bSeen);
+      const favs = loadFavRO();
+      const frag = document.createDocumentFragment();
+      for (const it of page) frag.append(makeCard(it, favs));
+      moreBtn?.remove(); moreBtn = null;
+      listEl.append(frag);
+      renderMore();
+    }
+    function renderMore() {
+      moreBtn?.remove(); moreBtn = null;
+      const left = curShown.length - drawnN;
+      if (left > 0) {
+        moreBtn = el('button', 'ams-btn primary', `Показать ещё ${Math.min(PAGE_N, left)} (осталось ${left})`);
+        moreBtn.style.cssText = 'grid-column:1/-1;justify-self:center;margin:6px 0 20px;padding:10px 18px';
+        moreBtn.onclick = () => appendCards(drawnN + PAGE_N);
+        listEl.append(moreBtn);
+      }
+    }
+    // убрать карточки с экрана на месте, без перерисовки всей ленты
+    function dropCards(pred) {
+      const keep = []; let drawn = 0;
+      curShown.forEach((x, i) => {
+        if (pred(x)) { cardEls.get(x.id)?.remove(); cardEls.delete(x.id); }
+        else { keep.push(x); if (i < drawnN) drawn++; }
+      });
+      curShown = keep; drawnN = drawn;
+      if (!curShown.length) { draw(); return; }
+      renderMore();
+      if (kbIdx >= 0) kbFocus(Math.min(kbIdx, drawnN - 1), false);
+    }
+    function kbFocus(i, scroll = true) {
+      listEl.querySelector('.amf-card.kb')?.classList.remove('kb');
+      if (!drawnN) { kbIdx = -1; return; }
+      kbIdx = Math.max(0, Math.min(i, drawnN - 1));
+      const card = cardEls.get(curShown[kbIdx].id);
+      if (!card) return;
+      card.classList.add('kb');
+      if (scroll) card.scrollIntoView({ block: 'nearest' });
+    }
+    let toastT = null;
+    function feedToast(text, undo) {
+      root.querySelector('.amf-toast')?.remove(); clearTimeout(toastT);
+      const t = el('div', 'amf-toast'); t.append(el('span', null, text));
+      if (undo) { const b = el('button', null, 'Отменить'); b.onclick = () => { t.remove(); undo(); }; t.append(b); }
+      root.append(t);
+      toastT = setTimeout(() => t.remove(), 6000);
+    }
+    function hideItem(it) {
+      queueHide([it.id]);
+      dropCards((x) => x.id === it.id);
+      feedToast('Скрыто', () => { if (!hideQ.delete(it.id)) markSeen([it.id], true); draw(); });
+    }
+
+    function makeCard(it, favs) {
+      const card = el('div', 'amf-card' + (viewed.has(it.id) ? ' viewed' : ''));
+      cardEls.set(it.id, card);
+      const open = () => { window.open(it.url, '_blank'); viewed.add(it.id); card.classList.add('viewed'); };
+      const img = el('img', 'amf-img'); img.src = it.img; img.loading = 'lazy'; img.decoding = 'async'; img.onclick = open;
+      const body = el('div', 'amf-body');
+      const t = el('div', 'amf-title', it.title); t.onclick = open;
+      const pr = el('div', 'amf-price', fmtPrice(it.price));
+      if (it.oldPrice && it.price && it.oldPrice !== it.price) {
+        pr.append(el('span', 'amf-old', `${it.oldPrice > it.price ? '📉' : '📈'} было ${fmtPrice(it.oldPrice)}`));
+      }
+      body.append(t, pr,
+        el('div', 'amf-meta', [it.ts ? '🕒 ' + fmtAge(it.ts) : '', it.bumped ? '♻️ перевыложено' : '', it.city, it.sellerName, it.sname ? '🔎 ' + it.sname : ''].filter(Boolean).join(' · ')));
+      if (it.params) body.append(el('div', 'amf-meta', '🏷 ' + it.params));
+      if (it.favAt && tab === 'fav') body.append(el('div', 'amf-meta', '❤️ отложено ' + fmtWhen(it.favAt) + (it.priceAt ? ' · цена обновлена ' + fmtWhen(it.priceAt) : '')));
+      if (it.pv) body.append(el('div', 'amf-pal', '🇨🇳 ' + it.pv.why.join(' · ')));
+      const dsc = it.desc || (it.fullDesc || '').slice(0, 300);
+      if (dsc) body.append(el('div', 'amf-desc', dsc));
+      const act = el('div', 'amf-actions');
+      const bOpen = el('button', null, '🔗 Открыть'); bOpen.onclick = open;
+      act.append(bOpen);
+      if (tab === 'fav') {
+        const bUn = el('button', null, '💔 Убрать'); bUn.title = 'Убрать из отложенных';
+        bUn.onclick = () => {
+          toggleFav(it); dropCards((x) => x.id === it.id); headSoon();
+          feedToast('Убрано из отложенных', () => { toggleFav(it); draw(); });
+        };
+        act.append(bUn);
+      } else {
+        const bSeen = el('button', null, '✓ Скрыть'); bSeen.title = 'Убрать из ленты (X)'; bSeen.dataset.act = 'hide';
+        bSeen.onclick = () => hideItem(it);
+        const isFav = !!favs[it.id];
+        const bFav = el('button', isFav ? 'on' : null, isFav ? '❤️ Отложено' : '🤍 Отложить'); bFav.dataset.act = 'fav';
+        bFav.title = 'Сохранить во вкладку «❤️ Отложенные» — не пропадёт из ленты (F)';
+        bFav.onclick = () => {
+          const on = toggleFav(it);
+          bFav.textContent = on ? '❤️ Отложено' : '🤍 Отложить'; bFav.classList.toggle('on', on);
+          headSoon();
+        };
+        act.append(bSeen, bFav);
         if (it.sellerKey) {
           const bSel = el('button', null, '🚫 Продавец');
           bSel.title = 'Скрыть все объявления этого продавца';
@@ -1718,7 +2011,10 @@
             if (!confirm(`Скрыть все объявления продавца «${it.sellerName || it.sellerKey}»?`)) return;
             const sl = loadSellers(); sl[it.sellerKey] = it.sellerName || it.sellerKey;
             GM_setValue('blockedSellers', JSON.stringify(sl));
-            updateFabBadge(); draw();
+            dropCards((x) => x.sellerKey === it.sellerKey); updateFabBadge(); headSoon();
+            feedToast(`Продавец «${it.sellerName || it.sellerKey}» скрыт`, () => {
+              const s2 = loadSellers(); delete s2[it.sellerKey]; GM_setValue('blockedSellers', JSON.stringify(s2)); updateFabBadge(); draw();
+            });
           };
           act.append(bSel);
         }
@@ -1728,25 +2024,19 @@
           bOk.onclick = () => {
             const ok = loadPalOk(); ok[it.sellerKey || 'id:' + it.id] = it.sellerName || it.title;
             GM_setValue('palOk', JSON.stringify(ok));
-            updateFabBadge(); draw();
+            dropCards((x) => (it.sellerKey ? x.sellerKey === it.sellerKey : x.id === it.id)); updateFabBadge(); headSoon();
           };
           act.append(bOk);
         }
-        body.append(act);
-        card.append(img, body);
-        listEl.append(card);
       }
-      const left = curShown.length - drawnN;
-      if (left > 0) {
-        moreBtn = el('button', 'ams-btn primary', `Показать ещё ${Math.min(PAGE_N, left)} (осталось ${left})`);
-        moreBtn.style.cssText = 'grid-column:1/-1;justify-self:center;margin:6px 0 20px;padding:10px 18px';
-        moreBtn.onclick = () => appendCards(drawnN + PAGE_N);
-        listEl.append(moreBtn);
-      }
+      body.append(act);
+      card.append(img, body);
+      return card;
     }
     // долистали почти до конца — подгружаем следующие сами (на телефоне кнопку внизу бывает не достать)
     listEl.addEventListener('scroll', () => {
       if (drawnN < curShown.length && listEl.scrollTop + listEl.clientHeight > listEl.scrollHeight - 1500) appendCards(drawnN + PAGE_N);
+      if (pill && listEl.scrollTop < 10) draw(); // вернулись наверх — показываем новые
     }, { passive: true });
 
     // пояснение и массовые действия на вкладке «Похоже на паль»
@@ -1796,18 +2086,28 @@
 
     async function run(limit = 0) {
       refresh.disabled = true; refresh.textContent = '⏳ Проверяю…';
-      draw();
-      const r = await checkAll(setStatus, drawSoon, typeof limit === 'number' ? limit : 0);
+      const p = checkAll(setStatus, drawSoon, typeof limit === 'number' ? limit : 0);
+      if (!curShown.length) draw(); // пустая лента — пишем «Ищу новые…»
+      const r = await p;
       refresh.disabled = false; refresh.textContent = '🔄 Проверить';
-      setStatus(r && r.problem ? '⚠️ ' + r.problem : r && r.busy ? 'Проверка уже идёт в другой вкладке' : null);
-      draw();
+      if (!r) { setStatus('Проверка уже идёт — найденное появится само.'); return; }
+      setStatus(r.problem ? '⚠️ ' + r.problem : r.busy ? 'Проверка уже идёт в другой вкладке' : null);
+      liveUpdate();
     }
     refresh.onclick = () => run(0);
     allSeen.onclick = () => {
-      const items = pendingItems().filter((x) => (tab === 'pal' ? x.pv : !x.pv && (tab === 'new' ? isNew(x) : !isNew(x))) && (cat === 'all' || catOf(x) === cat) && (!filterSid || bKey(x) === filterSid));
+      const items = compute().shown;
       if (!items.length) return;
       if (!confirm(`Отметить просмотренными ${items.length} объявл.?`)) return;
-      markSeen(items.map((x) => x.id)); draw();
+      const ids = items.map((x) => x.id);
+      markSeen(ids); draw();
+      feedToast(`Отмечено: ${ids.length}`, () => { markSeen(ids, true); draw(); });
+    };
+    feedUi = {
+      root, shut,
+      partial: drawSoon,
+      done: (r) => { if (!refresh.disabled) setStatus(r && r.problem ? '⚠️ ' + r.problem : null); liveUpdate(); },
+      show: () => liveUpdate(),
     };
     setStatus(); draw();
     // если давно не проверяли — проверяем сразу
@@ -1953,7 +2253,7 @@
     const searches = loadRO().map((x) => ({ ...x, seen: (x.seen || []).slice(0, BK_SEEN_N) }));
     const feed = loadFeedRO();
     const lastFeed = Object.fromEntries(Object.entries(feed).sort((a, b) => b[1].found - a[1].found).slice(0, BK_FEED_N));
-    return { kind: 'ams-local', searches, global: loadGlobal(), sellers: loadSellers(), palOk: loadPalOk(), feed: lastFeed, feedMeta: loadMeta() };
+    return { kind: 'ams-local', searches, global: loadGlobal(), sellers: loadSellers(), palOk: loadPalOk(), feed: lastFeed, feedMeta: loadMeta(), favs: loadFavRO() };
   }
 
   let bkBusy = false;
@@ -1986,6 +2286,7 @@
     saveGlobal(st.global || []);
     GM_setValue('blockedSellers', JSON.stringify(st.sellers || {}));
     if (st.palOk) GM_setValue('palOk', JSON.stringify(st.palOk));
+    if (st.favs) saveFavs(st.favs);
     saveFeed(st.feed || {}); saveMeta(st.feedMeta || {});
     alert(`${label}: поисков ${(st.searches || []).length}, скрытых продавцов ${Object.keys(st.sellers || {}).length}, ` +
       `объявлений в ленте ${Object.keys(st.feed || {}).length}.\nСтраница обновится.`);
@@ -2588,7 +2889,7 @@
       if (st && st.extra) return; // «из других городов» — не трогаем
       ids.push(id);
       const isNewHere = hasTs
-        ? (!seen.has(id) && (feed[id] || (st && isFresh(st, s))))
+        ? (!seen.has(id) && !(feed[id] && feed[id].seenAt) && (feed[id] || (st && isFresh(st, s))))
         : !seen.has(id);
       if (!firstVisit && isNewHere && !card.hasAttribute('data-ams-new') && !card.classList.contains('ams-hidden')) {
         card.setAttribute('data-ams-new', '1');
