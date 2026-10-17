@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Avito — скрыть продавцов + мои поиски
 // @namespace    avito-seller-blocker
-// @version      5.6
+// @version      5.7
 // @description  Скрытие продавцов, сохранённые поиски, стоп-слова, лента новых объявлений по всем поискам
 // @match        https://www.avito.ru/*
 // @match        https://m.avito.ru/*
@@ -889,7 +889,10 @@
   const SZ_ROW_SHOE = /(?:^|[\n;•|])[^\da-zа-я\n]{0,4}(3[4-9]|4[0-8])(?:[.,]5)?\s*(?:eu|eur|ru|рус|рос)?\s*[-–—=:(]\s*\d{2}(?:[.,]\d)?\s*(?:см|cm)?/g;
   const SZ_ROW_LET = /(?:^|[\n;•|])[^\da-zа-я\n]{0,4}(xxs|xs|s|m|l|xl|xxl|xxxl|[2-5]xl)\s*(?:[-–—=:(/]\s*)\(?\s*(?:4\d|5\d|6\d)\b/g;
   const SZ_ROW_NUM = /(?:^|[\n;•|])[^\da-zа-я\n]{0,4}(4[0-9]|5[0-8])\s*[-–—(/]\s*(?:xxs|xs|s|m|l|xl|xxl|xxxl|[2-5]xl)\b/g;
+  // в одну строку через запятую: «41(26см),42(26,5см),43(27,5),44(28см)»
+  const SZ_INLINE_SHOE = /(?:^|[^\d])(3[4-9]|4[0-8])(?:[.,]5)?\s*(?:eu|ru)?\s*\(\s*\d{2}(?:[.,]\d)?\s*(?:см|cm)?\s*\)/g;
   function sizeTable(text) {
+    if (new Set([...text.matchAll(SZ_INLINE_SHOE)].map((x) => x[1])).size >= 3) return true;
     for (const re of [SZ_ROW_SHOE, SZ_ROW_LET, SZ_ROW_NUM]) {
       const rows = new Set([...text.matchAll(re)].map((x) => x[1]));
       if (rows.size >= 3) return true;
@@ -905,7 +908,7 @@
   // фразы «размеры в наличии» — тот же признак, что и список размеров
   const PAL_SIZEWORDS = rxW(String.raw`все размеры|любой размер|любые размеры|размерн\S* сетк|размерн\S* ряд|наличие размер|уточняйте (?:\S+ )?(?:размер|наличие)|размеры в наличии|в наличии (?:все|любые) размер|популярные размеры|размеры по стельке|(?:все|любые) в наличии|в наличии все|подбер[её]м размер|поможем (?:вам )?(?:подобрать|определиться)|подобрать (?:\S+ )?размер|по (?:росту и весу|весу и росту)|(?:рост|вес)\S*\s*(?:и|/)\s*(?:рост|вес)`);
   // типичное для магазинов пали (не просто «подписывайтесь»)
-  const PAL_SHOP = rxW(String.raw`оператор 24|почему (?:нам|стоит|выбирают|нас)|при покупке (?:2|двух|от)|скидк\S* при (?:покупке|заказе)|без предоплат|с примеркой|доставка в день|в день заказа|отправка в день|перед заказом|\bпод заказ|\bоптом\b|\bопт\b|успейте|популярные модели|каждая пара|в коробке с бирками|полный комплект|пишите (?:нам )?в (?:лс|личн)|в день оформлен|реальные фото|навесн\S* бирк|фирменн\S* упаковк|производств\S*\s*[:\-–—]?\s*(?:турц|стамбул|китай|гуанчжоу|кита)|качество на высоте|эксклюзивн\S* товар|возврат без лишних|оформить заказ|оформля\S* заказ|никаких (?:дешев\S* )?аналог`, 'g');
+  const PAL_SHOP = rxW(String.raw`оператор 24|почему (?:нам|стоит|выбирают|нас)|при покупке (?:2|двух|от)|скидк\S* при (?:покупке|заказе)|без предоплат|с примеркой|доставка в день|в день заказа|отправка в день|перед заказом|\bпод заказ|\bоптом\b|\bопт\b|успейте|популярные модели|каждая пара|в коробке с бирками|полный комплект|пишите (?:нам )?в (?:лс|личн)|в день оформлен|реальные фото|навесн\S* бирк|фирменн\S* упаковк|производств\S*\s*[:\-–—]?\s*(?:турц|стамбул|китай|гуанчжоу|кита)|качество на высоте|эксклюзивн\S* товар|возврат без лишних|оформить заказ|оформля\S* заказ|никаких (?:дешев\S* )?аналог|при заказе (?:пишите|укажите|напишите)|наш (?:телеграм|telegram|тг)|(?:заказ\S*|привез\S*|везу|доставка) (?:с|из) кита|\bоптов(?:ая|ые|ой|ую) |в розницу`, 'g');
   // обычный магазинный текст — слабый признак
   const PAL_PROMO = rxW(String.raw`подписывай|подпишись|в (?:нашем|моем|мо[её]м) профил|другие модели|больше моделей|наш (?:магазин|шоу-?рум|склад)|шоу-?рум|мы находимся|ежедневно с\s*\d`);
   const PAL_SHOPNAME = rxW(String.raw`shop|store|market|маркет|магазин|бутик|boutique|outlet|аутлет|brand|бренд|sneak|кроссов|boots|\bобув|одежд|clothes|wear\b|fashion|\bstyle|стиль|\blab\b|\bclub\b|stock|\bсток|lux|люкс|premium|премиум|original|оригинал|trade|трейд|\bopt\b|\bопт\b|kicks|\bdrop|step\b|\|`);
@@ -1434,7 +1437,7 @@
   // Чистим ленту от лишнего. Непросмотренные объявления НЕ трогаем (раньше обрезали всё подряд до 400 —
   // и после долгого перерыва большая часть новых пропадала). Режем только просмотренные и скрытые фильтрами.
   // номер версии кода: вкладка со старой версией, увидев более новую, перестаёт проверять в фоне
-  const CODE_VER = 56;
+  const CODE_VER = 57;
   if (+GM_getValue('codeVer', 0) < CODE_VER) GM_setValue('codeVer', CODE_VER);
   const PENDING_MAX = 5000; // аварийный потолок для непросмотренных
   function trimFeed(feed) {
@@ -1662,48 +1665,62 @@
     if (m && html.includes('%22description%22')) { try { out.push(decodeURIComponent(jsonStrAt(html, m.index + m[0].length))); } catch { /* не вышло */ } }
     return out;
   }
-  function descFromJson(src, id) {
-    let best = '';
+  // Служебные тексты Авито, которые лежат рядом с описанием под тем же ключом «description»:
+  // блоки доставки и возврата. v5.3–5.6 принимали их за описание (у 165 из 216 вещей было «Только в пунктах Авито»).
+  const DESC_JUNK = /^(?:только в пунктах авито|после получения товара|доставка|авито доставка|возврат)/i;
+  const isJunkDesc = (t) => { const x = String(t || '').trim(); return x.length < 30 || DESC_JUNK.test(x); };
+  // все "description":"…" на странице: у настоящего описания рядом название этой вещи (у блока доставки — нет)
+  function jsonDescCands(src, id, title) {
+    const out = [], esc = JSON.stringify(String(title || '')).slice(1, -1).slice(0, 40);
     const re = /"description":"/g;
     let x;
     while ((x = re.exec(src))) {
-      if (!src.slice(Math.max(0, x.index - 20000), x.index + 20000).includes(id)) continue; // только у этого объявления, не у похожих
       const t = jsonStrAt(src, x.index + x[0].length);
-      if (t.length > best.length) best = t;
+      const near = src.slice(Math.max(0, x.index - 3000), x.index + 3000);
+      out.push({ t, byTitle: !!esc && near.includes(esc), byId: src.slice(Math.max(0, x.index - 60000), x.index + 60000).includes(id) });
     }
-    return best;
+    return out;
   }
-  function extractDesc(html, id) {
-    let m = html.match(/<(div|p|section)[^>]*(?:data-marker="[^"]*description[^"]*"|itemprop="description")[^>]*>([\s\S]{0,30000}?)<\/\1>/);
-    if (m) { const t = htmlToText(m[2]); if (t.length >= 15) return { text: t, how: 'разметка' }; }
+  function descFromJson(src, id, title) {
+    const c = jsonDescCands(src, id, title).filter((x) => !isJunkDesc(x.t));
+    const pick = (arr) => arr.reduce((best, x) => (x.t.length > best.length ? x.t : best), '');
+    return pick(c.filter((x) => x.byTitle)) || pick(c.filter((x) => x.byId));
+  }
+  function extractDesc(html, id, title) {
+    // только настоящий блок описания: общий поиск по «…description…» в разметке ловил блоки доставки
+    let m = html.match(/<(div|p|section)[^>]*(?:data-marker="item-view\/item-description"|itemprop="description")[^>]*>([\s\S]{0,30000}?)<\/\1>/);
+    if (m) { const t = htmlToText(m[2]); if (!isJunkDesc(t)) return { text: t, how: 'разметка' }; }
     for (const src of jsonLayers(html)) {
-      const t = descFromJson(src, id);
-      if (t.length >= 15) return { text: htmlToText(t), how: src === html ? 'json' : 'json-2' };
+      const t = descFromJson(src, id, title);
+      if (t) return { text: htmlToText(t), how: src === html ? 'json' : 'json-2' };
     }
     m = html.match(/<meta[^>]+(?:property="og:description"|itemprop="description")[^>]+content="([^"]*)"/);
-    return m ? { text: htmlToText(m[1]), how: 'og' } : { text: '', how: '' };
+    const og = m ? htmlToText(m[1]) : '';
+    return !isJunkDesc(og) ? { text: og, how: 'og' } : { text: '', how: '' };
   }
   const cleanDesc = (t) => String(t || '').replace(/[ \t ]+/g, ' ').replace(/\n\s*\n+/g, '\n').slice(0, DESC.keep);
   // что ответил Авито — чтобы понять, почему описание не нашлось (уходит в файл для анализа)
-  function descDiag(res, html, got, url) {
+  function descDiag(res, html, got, url, title) {
     const near = (re) => { const x = re.exec(html); return x ? html.slice(Math.max(0, x.index - 100), x.index + 150).replace(/\s+/g, ' ') : ''; };
     return { at: Date.now(), url, status: res.status, redirected: res.redirected, finalUrl: res.url, len: html.length,
       title: ((html.match(/<title[^>]*>([^<]{0,200})/i) || [])[1] || '').trim(), how: got.how, found: got.text.slice(0, 150),
       marks: { markup: /data-marker="[^"]*description|itemprop="description"/.test(html), json: html.includes('"description":"'),
         jsonEsc: /&quot;description&quot;|\\"description\\"|%22description%22/.test(html), og: /og:description/.test(html),
         initialData: html.includes('__initialData__'), idInPage: html.includes(url.split('_').pop()) },
-      block: near(/captcha|firewall|доступ ограничен|не робот|подозрительн/i), head: html.slice(0, 1500).replace(/\s+/g, ' ') };
+      block: near(/captcha|firewall|доступ ограничен|не робот|подозрительн/i), head: html.slice(0, 1500).replace(/\s+/g, ' '),
+      markers: [...new Set([...html.matchAll(/data-marker="([^"]*descr[^"]*)"/gi)].map((x) => x[1]))].slice(0, 20),
+      cands: jsonDescCands(html, url.split('_').pop(), title).slice(0, 15).map((x) => ({ t: x.t.slice(0, 80), len: x.t.length, byTitle: x.byTitle, byId: x.byId })) };
   }
   async function descFetch(it) {
     const u = new URL(it.url);
     const res = await fetch(location.origin + u.pathname, { credentials: 'include' });
     if (res.status === 404 || res.status === 410) return { text: '' };
     const html = await res.text();
-    const got = extractDesc(html, it.id);
+    const got = extractDesc(html, it.id, it.title);
     // блокировка — только явная: раньше слово «captcha» в служебном коде обычной страницы принималось за паузу
     const blocked = res.status === 429 || res.status === 403 || res.status === 439 || (!got.text &&
       (/<title[^>]*>[^<]*(?:доступ ограничен|робот|captcha|проверка)/i.test(html) || (html.length < 60000 && /captcha|firewall|доступ ограничен/i.test(html))));
-    return { text: got.text, blocked, diag: got.text && !blocked ? null : descDiag(res, html, got, it.url) };
+    return { text: got.text, blocked, diag: got.text && !blocked ? null : descDiag(res, html, got, it.url, it.title) };
   }
 
   // fast — ускоренный режим по кнопке «⚡»: вся очередь, по 2 страницы одновременно, короткие паузы,
@@ -1772,11 +1789,11 @@
         if (failRow >= 8) { stopAll = true; break; } // описание раз за разом не находится — не тратим запросы, ждём разбора
         if (++n % (fast ? 12 : 4) === 0) save();
         if (fast) fast.onProgress(n, todo.length, ok);
-        await sleep(fast ? 600 + Math.random() * 600 : DESC.gap + Math.random() * 1500);
+        await sleep(fast ? 1000 + Math.random() * 700 : DESC.gap + Math.random() * 1500);
       }
     };
     try {
-      await Promise.all(Array.from({ length: fast ? 2 : 1 }, (_, i) => sleep(i * 400).then(worker)));
+      await worker(); // по одной: две страницы одновременно Авито блокировал по IP (403 «проблема с IP», 17.10)
     } finally {
       save();
       const st2 = loadDescSt();
@@ -1801,7 +1818,7 @@
     let stop = false, line, btn;
     modal('⚡ Загружаю описания', (box) => {
       line = el('div', null, `В очереди ${total}. Начинаю…`);
-      const hint = el('div', null, 'По 2 страницы одновременно — в несколько раз быстрее обычного. Если Авито попросит паузу, остановлюсь сам. ' +
+      const hint = el('div', null, 'Примерно вдвое быстрее обычного. Если Авито попросит паузу, остановлюсь сам. ' +
         'Окно можно закрыть — загрузка продолжится, лента обновляется по ходу.');
       hint.style.cssText = 'color:#777;font-size:12px;margin-top:6px';
       btn = mbtn('⏹ Остановить');
@@ -1820,7 +1837,16 @@
     btn.disabled = false; btn.textContent = 'Закрыть';
     btn.onclick = () => document.getElementById('ams-modal')?.remove();
   }
-  if (loadDescSt().v !== 54) saveDescSt({ v: 54, pauseUntil: 0, stuck: 0, failRow: 0, lastPause: 0 }); // паузы от анонимных запросов — сбрасываем
+  if ((loadDescSt().v || 0) < 57) { // v5.3–5.6 записали блок доставки вместо описания — такие скачаем заново
+    const feed = loadFeed();
+    let ch = 0;
+    for (const it of Object.values(feed)) if (it.descAt && isJunkDesc(it.fullDesc)) { delete it.descAt; delete it.fullDesc; ch++; }
+    if (ch) saveFeed(feed);
+    const marks = loadMarks(MISS_KEY);
+    for (const x of Object.values(marks)) if (x.descAt && isJunkDesc(x.fullDesc)) { delete x.descAt; delete x.fullDesc; delete x.featWithDesc; }
+    GM_setValue(MISS_KEY, JSON.stringify(marks));
+    saveDescSt({ v: 57, stuck: 0, failRow: 0 });
+  }
   setInterval(() => { descRun(); }, 45000);
   function descStatus() {
     const st = loadDescSt();
