@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Avito — скрыть продавцов + мои поиски
 // @namespace    avito-seller-blocker
-// @version      5.3
+// @version      5.4
 // @description  Скрытие продавцов, сохранённые поиски, стоп-слова, лента новых объявлений по всем поискам
 // @match        https://www.avito.ru/*
 // @match        https://m.avito.ru/*
@@ -1434,7 +1434,7 @@
   // Чистим ленту от лишнего. Непросмотренные объявления НЕ трогаем (раньше обрезали всё подряд до 400 —
   // и после долгого перерыва большая часть новых пропадала). Режем только просмотренные и скрытые фильтрами.
   // номер версии кода: вкладка со старой версией, увидев более новую, перестаёт проверять в фоне
-  const CODE_VER = 53;
+  const CODE_VER = 54;
   if (+GM_getValue('codeVer', 0) < CODE_VER) GM_setValue('codeVer', CODE_VER);
   const PENDING_MAX = 5000; // аварийный потолок для непросмотренных
   function trimFeed(feed) {
@@ -1617,18 +1617,26 @@
 
   // ---------------- полные описания: скачиваем анонимно ----------------
   // В выдаче Авито описания почти нет (было у 7 объявлений из 100), а «размеры S–XXL в наличии», «поможем подобрать
-  // по росту и весу» пишут именно там. Страницу объявления берём БЕЗ cookie (credentials: 'omit'): Авито не связывает
-  // этот просмотр с вами, рекомендации не портятся. Только новые вещи из ленты, по одной, каждую — один раз.
+  // по росту и весу» пишут именно там. Без cookie Авито отвечает 439 «Доступ ограничен: проблема безопасности» (проверено
+  // 17.10), поэтому страницу берём как выдачу — с вашими cookie (пользователь согласен, что это влияет на рекомендации).
+  // Только вещи, похожие на товар магазина, по одной, каждую — один раз.
   const DESC = { perRun: 12, gap: 2500, maxAgeH: 72, keep: 1500, pause: 15 * 60000, maxPause: 2 * 3600000 };
   const loadDescSt = () => peekJSON('descState', '{}');
   const saveDescSt = (o) => GM_setValue('descState', JSON.stringify({ ...loadDescSt(), ...o }));
   let descRunning = false;
 
+  // кому нужно описание: новое — всегда; «Отличное» и т.п. — только у продавцов, похожих на магазин
+  // (магазины пали ставят «Отличное», чтобы не выглядеть магазином). Отмеченное вами «Паль» — тоже, для анализа.
   function descCandidates() {
-    const okSellers = loadPalOk(), border = Date.now() - DESC.maxAgeH * 3600000;
-    return pendingItems().filter((it) => !it.descAt && !it.pv && it.url && (it.found || 0) > border && (it.desc || '').length < 250 &&
-      /^новое/.test(norm(String(it.params || '').split('·')[0]).trim()) && !(it.sellerKey && okSellers[it.sellerKey]))
-      .sort((a, b) => (a.shownAt ? 1 : 0) - (b.shownAt ? 1 : 0)); // сначала то, что вы ещё не видели
+    const okSellers = loadPalOk(), missed = loadMissedRO(), db = palDbLoad(), border = Date.now() - DESC.maxAgeH * 3600000;
+    const shopLike = (it) => (it.sellerName && (PAL_SHOPNAME.test(norm(it.sellerName)) || /^[A-Z0-9 &._'|-]{3,}$/.test(it.sellerName.trim()))) ||
+      (it.closed || 0) >= 300 || ((db[it.sellerKey] || {}).ids || []).length >= 5;
+    return pendingItems().filter((it) => {
+      if (it.descAt || !it.url || (it.desc || '').length >= 250) return false;
+      if (missed[it.id]) return true;
+      if (it.pv || (it.found || 0) <= border || (it.sellerKey && okSellers[it.sellerKey])) return false;
+      return /^новое/.test(norm(String(it.params || '').split('·')[0]).trim()) || shopLike(it);
+    }).sort((a, b) => (missed[b.id] ? 1 : 0) - (missed[a.id] ? 1 : 0) || (a.shownAt ? 1 : 0) - (b.shownAt ? 1 : 0)); // сначала то, что вы ещё не видели
   }
 
   const htmlToText = (h) => {
@@ -1686,12 +1694,12 @@
   }
   async function descFetch(it) {
     const u = new URL(it.url);
-    const res = await fetch(location.origin + u.pathname, { credentials: 'omit', referrerPolicy: 'no-referrer' });
+    const res = await fetch(location.origin + u.pathname, { credentials: 'include' });
     if (res.status === 404 || res.status === 410) return { text: '' };
     const html = await res.text();
     const got = extractDesc(html, it.id);
     // блокировка — только явная: раньше слово «captcha» в служебном коде обычной страницы принималось за паузу
-    const blocked = res.status === 429 || res.status === 403 || (!got.text &&
+    const blocked = res.status === 429 || res.status === 403 || res.status === 439 || (!got.text &&
       (/<title[^>]*>[^<]*(?:доступ ограничен|робот|captcha|проверка)/i.test(html) || (html.length < 60000 && /captcha|firewall|доступ ограничен/i.test(html))));
     return { text: got.text, blocked, diag: got.text && !blocked ? null : descDiag(res, html, got, it.url) };
   }
@@ -1713,6 +1721,14 @@
       const feed = loadFeed();
       for (const id of ids) if (feed[id]) Object.assign(feed[id], got[id]);
       saveFeed(feed);
+      const marks = loadMarks(MISS_KEY);
+      let mch = false;
+      for (const id of ids) {
+        if (!marks[id] || !got[id].fullDesc) continue;
+        const f = palFeat({ ...marks[id], ...got[id] });
+        Object.assign(marks[id], got[id], { featWithDesc: { w: f.w, m: f.m, minus: f.minus, s: f.s, why: f.why } }); mch = true;
+      }
+      if (mch) GM_setValue(MISS_KEY, JSON.stringify(marks));
       // паль нашлась по описанию — запоминаем у продавца: остальные его вещи тоже станут подозрительнее
       const byId = new Map(loadRO().map((s) => [s.id, s]));
       const ctx = { ...hideCtx(), feed }, db = palDbLoad();
@@ -1753,6 +1769,7 @@
     }
     return n;
   }
+  if (loadDescSt().v !== 54) saveDescSt({ v: 54, pauseUntil: 0, stuck: 0, failRow: 0, lastPause: 0 }); // паузы от анонимных запросов — сбрасываем
   setInterval(() => { descRun(); }, 45000);
   function descStatus() {
     const st = loadDescSt();
@@ -1778,7 +1795,7 @@
       row('hiddenTab', '🌙 Проверять, даже когда вкладка Авито не на экране',
         'Для ПК: оставьте одну вкладку Авито открытой в фоне — скрипт будет проверять поиски и присылать уведомления. На телефоне браузер обычно усыпляет фоновые вкладки.');
       row('desc', '📄 Загружать описания новых вещей для детектора пали',
-        'В выдаче Авито описания нет, а «все размеры в наличии» пишут именно там. Страница скачивается анонимно, без ваших cookie — рекомендации не портятся. По одной раз в несколько секунд.');
+        'В выдаче Авито описания нет, а «все размеры в наличии» пишут именно там. Страница скачивается как обычно, с вашими cookie (без них Авито не пускает) — это может влиять на рекомендации. По одной раз в несколько секунд.');
       const ds = el('div', null, descStatus()); ds.style.cssText = 'color:#555;font-size:12px;margin:4px 0 0 24px';
       box.append(ds);
       const test = mbtn('Проверить уведомление');
