@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Avito — скрыть продавцов + мои поиски
 // @namespace    avito-seller-blocker
-// @version      5.9
+// @version      6.0
 // @description  Скрытие продавцов, сохранённые поиски, стоп-слова, лента новых объявлений по всем поискам
 // @match        https://www.avito.ru/*
 // @match        https://m.avito.ru/*
@@ -588,6 +588,7 @@
     const exp = avfParse(u.searchParams.get('f'));
     const want = [...exp.singles.map(([k, v]) => [k, [v]]), ...exp.multi];
     const echo = searchEcho(html);
+    if (!echo.params) return verifyByItems(html, m); // m.avito.ru не пишет в странице, как понял фильтры
     const miss = echo.params ? want.filter(([k, vals]) => { const got = new Set(asIds(echo.params[k])); return !vals.every((v) => got.has(v)); }).map(([k]) => k) : want.map(([k]) => k);
     if (!miss.length) return [];
     // Запасная проверка — по самим объявлениям в выдаче. У аксессуаров Авито не возвращает фильтры в ответе,
@@ -603,6 +604,19 @@
       if (brandOk && catOk && miss.every((k) => k === P_BRAND || k === P_CAT)) return [];
     }
     return miss.map((k) => (k === P_BRAND ? 'бренды' : k === 118631 ? 'вид обуви' : k === P_SIZE || k === P_SHOE ? 'размеры' : 'параметр ' + k));
+  }
+  // проверка по самой выдаче: почти всё — нужных брендов (и для аксессуаров — не одежда/обувь); выдача пустая или маленькая — проверить нечем
+  function verifyByItems(html, m) {
+    let items = parseState(html).filter((x) => !x.extra);
+    if (!items.length) items = quickCards(html);
+    const withP = items.filter((x) => x.params);
+    if (withP.length < 5) return [];
+    if (withP.filter((it) => !brandMismatch(it, { name: m.name })).length < withP.length * 0.8) return ['бренды'];
+    if (m.kind === 'aks') {
+      const notAcc = withP.filter((it) => { const t = palText(it.title).text; return (W_CLOTH.test(t) || W_SHOE.test(t)) && !W_ACC.test(t); }).length;
+      if (notAcc > withP.length * 0.3) return ['категория'];
+    }
+    return [];
   }
   async function runMerge(data) {
     const cur = load();
@@ -1439,7 +1453,7 @@
   // Чистим ленту от лишнего. Непросмотренные объявления НЕ трогаем (раньше обрезали всё подряд до 400 —
   // и после долгого перерыва большая часть новых пропадала). Режем только просмотренные и скрытые фильтрами.
   // номер версии кода: вкладка со старой версией, увидев более новую, перестаёт проверять в фоне
-  const CODE_VER = 59;
+  const CODE_VER = 60;
   if (+GM_getValue('codeVer', 0) < CODE_VER) GM_setValue('codeVer', CODE_VER);
   const PENDING_MAX = 5000; // аварийный потолок для непросмотренных
   function trimFeed(feed) {
@@ -3091,6 +3105,65 @@
   const KIND_OF = { odezhda: 'odezhda', obuv: 'obuv', aks: 'aksessuary' };
   const kindKeyOf = (s) => { const k = searchKind(s); if (k !== 'aks') return KIND_OF[k] || ''; return /^👜/u.test(s.name) ? 'sumki' : 'aksessuary'; };
 
+  // шаги 2–4 перестройки: деним, Energie, аксессуары — то, чего ещё нет; проверка по одному поиску каждого вида
+  async function planAdditions(list, say, report) {
+    const found = PLAN58.add;
+    const has = (url) => list.some((x) => fingerprint(x.url) === fingerprint(url));
+    const banOf = (kindKey) => ((list.find((x) => kindKeyOf(x) === kindKey) || {}).ban || []).slice();
+    const newOnes = [];
+    const push = (name, url, kindKey) => { if (has(url) || newOnes.some((x) => fingerprint(x.url) === fingerprint(url))) return; newOnes.push({ name, url, kindKey, ban: kindKey === 'aksessuary' || kindKey === 'sumki' ? banOf(kindKey) : [] }); };
+    if (found.length) {
+      const ids = found.map((f) => f.id), nm = found.map((f) => f.name).join(', ');
+      push(`👕 Деним 90-х и 2000-х: ${nm}`, kindUrl('odezhda', { ids }), 'odezhda');
+      push(`👟 Обувь: ${nm}`, kindUrl('obuv', { ids }), 'obuv');
+      push(`👜 Сумки: ${nm}`, kindUrl('sumki', { ids }), 'sumki');
+    }
+    for (const t of PLAN58.text) {
+      push(`👕 ${t.name} — одежда`, kindUrl('odezhda', { q: t.q }), 'odezhda');
+      push(`👟 ${t.name} — обувь`, kindUrl('obuv', { q: t.q }), 'obuv');
+      push(`🕶 ${t.name} — аксессуары`, kindUrl('aksessuary', { q: t.q }), 'aksessuary');
+      push(`👜 ${t.name} — сумки`, kindUrl('sumki', { q: t.q }), 'sumki');
+    }
+    // 3) аксессуары: всех брендов одежды, которых там нет; группами до 7 кодов
+    say('\n3) Дополняю аксессуары брендами из одежды…');
+    const accIds = new Set(list.filter((x) => kindKeyOf(x) === 'aksessuary').flatMap((x) => brandIdsOf(x.url)));
+    const accNames = new Set(list.filter((x) => kindKeyOf(x) === 'aksessuary').flatMap((x) => searchBrandNames(x.name)).map(key2));
+    const groups = [];
+    for (const s of list) {
+      if (kindKeyOf(s) !== 'odezhda') continue;
+      const ids = brandIdsOf(s.url).filter((id) => !accIds.has(id));
+      if (!ids.length) continue;
+      const names = searchBrandNames(s.name).filter((n) => !accNames.has(key2(n)));
+      groups.push({ ids, names: names.length ? names : searchBrandNames(s.name) });
+      ids.forEach((id) => accIds.add(id));
+    }
+    if (found.length && !accIds.has(found[0].id)) groups.push({ ids: found.map((f) => f.id), names: found.map((f) => f.name) });
+    const bins = [];
+    for (const g of groups) {
+      const b = bins[bins.length - 1];
+      if (b && b.ids.length + g.ids.length <= 7) { b.ids.push(...g.ids); b.names.push(...g.names); } else bins.push({ ids: [...g.ids], names: [...g.names] });
+    }
+    for (const b of bins) push(`🕶 Аксессуары: ${b.names.join(', ')}`, kindUrl('aksessuary', { ids: b.ids }), 'aksessuary');
+    say(`  новых поисков аксессуаров: ${bins.length} (брендов ${bins.reduce((n, b) => n + b.names.length, 0)})`);
+    // 4) проверяем на Авито по одному новому поиску каждого вида
+    say('\n4) Проверяю, понял ли Авито фильтры…');
+    const okKinds = new Set();
+    for (const kindKey of [...new Set(newOnes.map((x) => x.kindKey))]) {
+      const m = newOnes.find((x) => x.kindKey === kindKey && !/&q=/.test(x.url)) || newOnes.find((x) => x.kindKey === kindKey);
+      if (/&q=/.test(m.url)) { okKinds.add(kindKey); continue; } // текстовый поиск проверять нечем
+      try {
+        const probs = await verifyMerge({ url: m.url, name: m.name, kind: kindKey === 'aksessuary' || kindKey === 'sumki' ? 'aks' : kindKey });
+        if (probs.length) say(`  ✗ ${m.name}: Авито не понял (${probs.join(', ')}) — такие не добавляю`);
+        else { okKinds.add(kindKey); say(`  ✓ ${m.name}`); }
+      } catch (e) { say(`  ✗ ${m.name}: ${e.message} — такие не добавляю`); }
+    }
+    const t0 = Date.now();
+    newOnes.filter((x) => okKinds.has(x.kindKey)).forEach((x, i) => {
+      list.push({ id: t0 + i, name: x.name, url: x.url, ban: x.ban, seen: [], lastVisit: 0 });
+      report.added.push(x.name);
+    });
+    return newOnes.length;
+  }
   async function runPlan58() {
     if (feedRunning || mergeRunning) { alert('Сейчас идёт проверка поисков — попробуйте через минуту.'); return; }
     const st0 = String(GM_getValue('plan58', ''));
@@ -3119,64 +3192,10 @@
         report.trimmed.push(s.name); say(`  ✓ «${s.name}» (убрано кодов: ${ids.length - left.length})`);
       }
       // 2) новые бренды — коды из каталога: в фильтре на странице Авито показывает только популярные
-      const found = PLAN58.add;
-      say('\n2) Добавляю: ' + found.map((f) => f.name).join(', ') + ' и ' + PLAN58.text.map((t) => t.name).join(', ') + ' (по тексту)');
-      const has = (url) => list.some((x) => fingerprint(x.url) === fingerprint(url));
-      const banOf = (kindKey) => ((list.find((x) => kindKeyOf(x) === kindKey) || {}).ban || []).slice();
-      const newOnes = [];
-      const push = (name, url, kindKey) => { if (has(url) || newOnes.some((x) => fingerprint(x.url) === fingerprint(url))) return; newOnes.push({ name, url, kindKey, ban: kindKey === 'aksessuary' || kindKey === 'sumki' ? banOf(kindKey) : [] }); };
-      if (found.length) {
-        const ids = found.map((f) => f.id), nm = found.map((f) => f.name).join(', ');
-        push(`👕 Деним 90-х и 2000-х: ${nm}`, kindUrl('odezhda', { ids }), 'odezhda');
-        push(`👟 Обувь: ${nm}`, kindUrl('obuv', { ids }), 'obuv');
-        push(`👜 Сумки: ${nm}`, kindUrl('sumki', { ids }), 'sumki');
-      }
-      for (const t of PLAN58.text) {
-        push(`👕 ${t.name} — одежда`, kindUrl('odezhda', { q: t.q }), 'odezhda');
-        push(`👟 ${t.name} — обувь`, kindUrl('obuv', { q: t.q }), 'obuv');
-        push(`🕶 ${t.name} — аксессуары`, kindUrl('aksessuary', { q: t.q }), 'aksessuary');
-        push(`👜 ${t.name} — сумки`, kindUrl('sumki', { q: t.q }), 'sumki');
-      }
-      // 3) аксессуары: всех брендов одежды, которых там нет; группами до 7 кодов
-      say('\n3) Дополняю аксессуары брендами из одежды…');
-      const accIds = new Set(list.filter((x) => kindKeyOf(x) === 'aksessuary').flatMap((x) => brandIdsOf(x.url)));
-      const accNames = new Set(list.filter((x) => kindKeyOf(x) === 'aksessuary').flatMap((x) => searchBrandNames(x.name)).map(key2));
-      const groups = [];
-      for (const s of list) {
-        if (kindKeyOf(s) !== 'odezhda') continue;
-        const ids = brandIdsOf(s.url).filter((id) => !accIds.has(id));
-        if (!ids.length) continue;
-        const names = searchBrandNames(s.name).filter((n) => !accNames.has(key2(n)));
-        groups.push({ ids, names: names.length ? names : searchBrandNames(s.name) });
-        ids.forEach((id) => accIds.add(id));
-      }
-      if (found.length) groups.push({ ids: found.map((f) => f.id), names: found.map((f) => f.name) });
-      const bins = [];
-      for (const g of groups) {
-        const b = bins[bins.length - 1];
-        if (b && b.ids.length + g.ids.length <= 7) { b.ids.push(...g.ids); b.names.push(...g.names); } else bins.push({ ids: [...g.ids], names: [...g.names] });
-      }
-      for (const b of bins) push(`🕶 Аксессуары: ${b.names.join(', ')}`, kindUrl('aksessuary', { ids: b.ids }), 'aksessuary');
-      say(`  новых поисков аксессуаров: ${bins.length} (брендов ${bins.reduce((n, b) => n + b.names.length, 0)})`);
-      // 4) проверяем на Авито по одному новому поиску каждого вида
-      say('\n4) Проверяю, понял ли Авито фильтры…');
-      const okKinds = new Set();
-      for (const kindKey of [...new Set(newOnes.map((x) => x.kindKey))]) {
-        const m = newOnes.find((x) => x.kindKey === kindKey && !/&q=/.test(x.url)) || newOnes.find((x) => x.kindKey === kindKey);
-        if (/&q=/.test(m.url)) { okKinds.add(kindKey); continue; } // текстовый поиск проверять нечем
-        try {
-          const probs = await verifyMerge({ url: m.url, name: m.name, kind: kindKey === 'aksessuary' || kindKey === 'sumki' ? 'aks' : kindKey });
-          if (probs.length) say(`  ✗ ${m.name}: Авито не понял (${probs.join(', ')}) — такие не добавляю`);
-          else { okKinds.add(kindKey); say(`  ✓ ${m.name}`); }
-        } catch (e) { say(`  ✗ ${m.name}: ${e.message} — такие не добавляю`); }
-      }
-      const t0 = Date.now();
-      newOnes.filter((x) => okKinds.has(x.kindKey)).forEach((x, i) => {
-        list.push({ id: t0 + i, name: x.name, url: x.url, ban: x.ban, seen: [], lastVisit: 0 });
-        report.added.push(x.name);
-      });
+      say('\n2) Добавляю: ' + PLAN58.add.map((f) => f.name).join(', ') + ' и ' + PLAN58.text.map((t) => t.name).join(', ') + ' (по тексту)');
+      await planAdditions(list, say, report);
       save(list);
-      GM_setValue('plan58', 'done:' + Date.now()); GM_setValue('plan59', 'done:' + Date.now()); // деним уже по кодам
+      GM_setValue('plan58', 'done:' + Date.now()); GM_setValue('plan59', 'done:' + Date.now()); GM_setValue('plan60', 'done:' + Date.now()); // деним уже по кодам
       say(`\nГотово. Удалено поисков: ${report.removedSearches.length}, изменено: ${report.trimmed.length}, добавлено: ${report.added.length}` +
         (report.skipped.length ? `, не тронуто (не вышло): ${report.skipped.length}` : '') + `. Всего поисков: ${list.length}.`);
       say('Новые поиски при первой проверке только запомнят текущую выдачу — новое пойдёт со следующей.');
@@ -3212,6 +3231,27 @@
     document.body.appendChild(t); setTimeout(() => t.remove(), 8000);
   }
   setTimeout(fixDenim59, 5000);
+  // На m.avito.ru проверка фильтров в 5.8–5.9 не проходила никогда (страница не пишет, как Авито понял фильтры),
+  // поэтому на телефоне перестройка убрала бренды, но ничего не добавила. Догружаем недостающее — один раз.
+  async function fixPlan60() {
+    const st = String(GM_getValue('plan60', ''));
+    if (st.startsWith('done') || +(st.split(':')[1] || 0) >= 3) return; // три попытки — дальше только вручную (⚙️)
+    if (!String(GM_getValue('plan58', '')).startsWith('done') || feedRunning || mergeRunning || document.visibilityState !== 'visible') return;
+    mergeRunning = true;
+    const lines = [], report = { added: [] };
+    try {
+      const list = load();
+      const n = await planAdditions(list, (t) => lines.push(t), report);
+      if (report.added.length) { save(list); toastMsg(`⭐ Добавлено поисков: ${report.added.length} (аксессуары, деним, Energie).`); }
+      if (report.added.length || !n) GM_setValue('plan60', 'done:' + Date.now());
+      else { // Авито не подтвердил или попросил паузу — попробуем при следующем открытии
+        const tries = +(st.split(':')[1] || 0) + 1;
+        GM_setValue('plan60', 'try:' + tries);
+        if (tries >= 3) toastMsg('⭐ Не удалось добавить новые поиски: Авито не подтвердил фильтры. Повторить: ⚙️ → «🔧 Перестроить поиски».');
+      }
+    } catch (e) { /* пауза Авито или сеть — попробуем при следующем открытии */ } finally { mergeRunning = false; }
+  }
+  setTimeout(fixPlan60, 9000);
 
   // предлагаем один раз на устройстве, когда вкладка на экране и ничего не проверяется
   setTimeout(() => {
