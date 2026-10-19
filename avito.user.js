@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Avito — скрыть продавцов + мои поиски
 // @namespace    avito-seller-blocker
-// @version      6.0
+// @version      6.1
 // @description  Скрытие продавцов, сохранённые поиски, стоп-слова, лента новых объявлений по всем поискам
 // @match        https://www.avito.ru/*
 // @match        https://m.avito.ru/*
@@ -1198,6 +1198,7 @@
     if (it.sellerKey && sellers[it.sellerKey]) return 'seller';
     if (it.sellerName && sellers['name:' + it.sellerName.toLowerCase()]) return 'seller';
     if (c.noNewTag && isNewTag(it)) return 'newtag'; // «Новое с биркой» не показываем совсем (⚙️)
+    if (isRemovedBrand(it)) return 'removed'; // бренды, которые вы убрали (Off White, Fear of God…) — кто бы их ни нашёл
     const words = [...global, ...((search && search.ban) || [])];
     if (findWord(itemText(it), words)) return 'word';
     if (insoleMismatch(it, search)) return 'insole';
@@ -1453,7 +1454,7 @@
   // Чистим ленту от лишнего. Непросмотренные объявления НЕ трогаем (раньше обрезали всё подряд до 400 —
   // и после долгого перерыва большая часть новых пропадала). Режем только просмотренные и скрытые фильтрами.
   // номер версии кода: вкладка со старой версией, увидев более новую, перестаёт проверять в фоне
-  const CODE_VER = 60;
+  const CODE_VER = 61;
   if (+GM_getValue('codeVer', 0) < CODE_VER) GM_setValue('codeVer', CODE_VER);
   const PENDING_MAX = 5000; // аварийный потолок для непросмотренных
   function trimFeed(feed) {
@@ -2026,6 +2027,7 @@
       return `продавец «${it.sellerName || it.sellerKey}» у вас в скрытых`;
     }
     if (loadOpts().noNewTag && isNewTag(it)) return 'состояние «Новое с биркой» — такие скрыты (⚙️ → «Скрывать „Новое с биркой“»)';
+    if (isRemovedBrand(it)) return `бренд «${brandOf(it)}» вы убрали из поисков`;
     const text = itemText(it);
     const g = findWord(text, loadGlobal());
     if (g) return `сработало общее стоп-слово «${g}»`;
@@ -3076,6 +3078,14 @@
     text: [{ name: 'Energie', q: 'energie' }], // такого бренда нет в каталоге Авито — ищем по тексту
   };
   const key2 = (t) => brandKey(t).replace(/ /g, '');
+  const rmBrandCache = new Map();
+  function isRemovedBrand(it) {
+    const b = brandOf(it);
+    if (!b) return false;
+    let v = rmBrandCache.get(b);
+    if (v === undefined) { v = isRemoved(b); rmBrandCache.set(b, v); }
+    return v;
+  }
   const rmKeys = PLAN58.remove.map(key2);
   const isRemoved = (name) => String(name).split('/').some((part) => { const k = key2(part); return k && rmKeys.some((r) => k === r || k.startsWith(r)); });
   // названия брендов из названия поиска: «👟 Обувь: A, B» → [A, B], «👕 Kenzo — одежда» → [Kenzo], «KENZO» → [KENZO]
@@ -3230,6 +3240,27 @@
       borderRadius: '10px', zIndex: 100001, font: '14px Arial,sans-serif', maxWidth: 'calc(100vw - 32px)', boxShadow: '0 4px 14px rgba(0,0,0,.25)' });
     document.body.appendChild(t); setTimeout(() => t.remove(), 8000);
   }
+  // Убранные бренды — навсегда. Разовая перестройка не защищала от того, что старый список вернётся
+  // (вкладка, открытая до перестройки, копия, перенос, другой браузер) — на ПК «Стритвир 1» снова искался 19.10.
+  // Поэтому при каждом запуске чистим поиски по кодам из каталога (без запросов к Авито).
+  function enforceRemoved() {
+    if (mergeRunning || feedRunning) return;
+    const list = load(), rmIds = new Set(PLAN58.removeIds);
+    let n = 0;
+    for (const s of [...list]) {
+      const names = searchBrandNames(s.name), ids = brandIdsOf(s.url);
+      if (!names.some(isRemoved) && !ids.some((id) => rmIds.has(id))) continue;
+      const keep = names.filter((x) => !isRemoved(x)), left = ids.filter((id) => !rmIds.has(id));
+      n++;
+      if (!keep.length || (ids.length && !left.length)) { list.splice(list.indexOf(s), 1); continue; }
+      if (left.length !== ids.length) s.url = withBrandIds(s.url, left);
+      if (s.name.includes(':')) s.name = s.name.slice(0, s.name.indexOf(':') + 1) + ' ' + keep.join(', ');
+    }
+    if (!n) return;
+    save(list);
+    toastMsg(`⭐ Убраны бренды ${PLAN58.remove.slice(0, 3).join(', ')}… из поисков: ${n}.`);
+  }
+  setTimeout(enforceRemoved, 3000);
   setTimeout(fixDenim59, 5000);
   // На m.avito.ru проверка фильтров в 5.8–5.9 не проходила никогда (страница не пишет, как Авито понял фильтры),
   // поэтому на телефоне перестройка убрала бренды, но ничего не добавила. Догружаем недостающее — один раз.
