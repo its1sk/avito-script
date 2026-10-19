@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Avito — скрыть продавцов + мои поиски
 // @namespace    avito-seller-blocker
-// @version      5.7
+// @version      5.8
 // @description  Скрытие продавцов, сохранённые поиски, стоп-слова, лента новых объявлений по всем поискам
 // @match        https://www.avito.ru/*
 // @match        https://m.avito.ru/*
@@ -716,7 +716,8 @@
 
   // настройки ленты
   const OPT_KEY = 'amsOpts';
-  const loadOpts = () => ({ notify: true, hiddenTab: false, desc: true, sort: 'date', ...peekJSON(OPT_KEY, '{}') });
+  const loadOpts = () => ({ notify: true, hiddenTab: false, desc: true, noNewTag: true, sort: 'date', ...peekJSON(OPT_KEY, '{}') });
+  const isNewTag = (it) => /^новое с бирк/.test(norm(String(it.params || '').split('·')[0]).trim());
   const saveOpt = (k, v) => GM_setValue(OPT_KEY, JSON.stringify({ ...peekJSON(OPT_KEY, '{}'), [k]: v }));
 
   function cardPrice(c) {
@@ -1100,7 +1101,7 @@
   }
 
   // ctx — заранее прочитанные продавцы и общие стоп-слова (чтобы не читать хранилище на каждое объявление)
-  const hideCtx = () => ({ sellers: loadSellers(), global: loadGlobal(), palOk: loadPalOk(), palOn: palOn(), missed: loadMissedRO(), missSellers: missedSellers() });
+  const hideCtx = () => ({ sellers: loadSellers(), global: loadGlobal(), palOk: loadPalOk(), palOn: palOn(), missed: loadMissedRO(), missSellers: missedSellers(), noNewTag: loadOpts().noNewTag });
 
   // ---------------- отметки для анализа пали ----------------
   // «🇨🇳 Паль» на обычной карточке — фильтр пропустил паль; «✅ Не паль» — фильтр ошибся. Оба списка с полными данными
@@ -1179,9 +1180,10 @@
     } catch (e) { alert('Не вышло сохранить файл: ' + e.message); }
   }
   function feedHideReason(it, search, ctx) {
-    const { sellers, global } = ctx || hideCtx();
+    const c = ctx || hideCtx(), { sellers, global } = c;
     if (it.sellerKey && sellers[it.sellerKey]) return 'seller';
     if (it.sellerName && sellers['name:' + it.sellerName.toLowerCase()]) return 'seller';
+    if (c.noNewTag && isNewTag(it)) return 'newtag'; // «Новое с биркой» не показываем совсем (⚙️)
     const words = [...global, ...((search && search.ban) || [])];
     if (findWord(itemText(it), words)) return 'word';
     if (insoleMismatch(it, search)) return 'insole';
@@ -1437,7 +1439,7 @@
   // Чистим ленту от лишнего. Непросмотренные объявления НЕ трогаем (раньше обрезали всё подряд до 400 —
   // и после долгого перерыва большая часть новых пропадала). Режем только просмотренные и скрытые фильтрами.
   // номер версии кода: вкладка со старой версией, увидев более новую, перестаёт проверять в фоне
-  const CODE_VER = 57;
+  const CODE_VER = 58;
   if (+GM_getValue('codeVer', 0) < CODE_VER) GM_setValue('codeVer', CODE_VER);
   const PENDING_MAX = 5000; // аварийный потолок для непросмотренных
   function trimFeed(feed) {
@@ -1871,6 +1873,8 @@
       row('notify', '🔔 Уведомлять о новых объявлениях', 'Когда фоновая проверка нашла новое, а вы смотрите не на Авито. Не чаще раза в минуту.');
       row('hiddenTab', '🌙 Проверять, даже когда вкладка Авито не на экране',
         'Для ПК: оставьте одну вкладку Авито открытой в фоне — скрипт будет проверять поиски и присылать уведомления. На телефоне браузер обычно усыпляет фоновые вкладки.');
+      row('noNewTag', '🏷 Скрывать «Новое с биркой»',
+        'Такие вещи не показываются нигде — ни в ленте, ни на страницах поиска, и их описания не скачиваются (меньше запросов к Авито).');
       row('desc', '📄 Загружать описания новых вещей для детектора пали',
         'В выдаче Авито описания нет, а «все размеры в наличии» пишут именно там. Страница скачивается как обычно, с вашими cookie (без них Авито не пускает) — это может влиять на рекомендации. По одной раз в несколько секунд.');
       const ds = el('div', null, descStatus()); ds.style.cssText = 'color:#555;font-size:12px;margin:4px 0 0 24px';
@@ -1902,11 +1906,12 @@
         }
       };
       const fastB = mbtn('⚡ Загрузить описания сейчас'); fastB.onclick = () => { close(); descFastUi(); };
+      const plan = mbtn('🔧 Перестроить поиски (5.8)'); plan.onclick = () => { close(); runPlan58(); };
       const rep = mbtn('📊 Файл для анализа пали'); rep.onclick = () => { close(); exportPalReportUi(); };
       const ok = mbtn('Готово', true); ok.onclick = close;
       const keys = el('div', null, 'Клавиши в ленте (ПК): J / K — следующее / предыдущее, O или Enter — открыть, X — скрыть, F — отложить.');
       keys.style.cssText = 'color:#555;font-size:12px;margin-top:6px';
-      box.append(keys, test, probe, fastB, rep, ok);
+      box.append(keys, test, probe, fastB, rep, plan, ok);
     });
   }
 
@@ -1917,7 +1922,7 @@
   function pendingItems() {
     palDbLoad(); // чтобы отметка времени памяти о продавцах не менялась прямо посреди сравнения
     const sig = [GM_getValue(KEY, '[]'), GM_getValue(FEED_KEY, '{}'), GM_getValue('blockedSellers', '{}'),
-      GM_getValue(GLOBAL_KEY, '[]'), GM_getValue('palOk', '{}'), GM_getValue('palOff', ''), GM_getValue(MISS_KEY, '{}'), palDbAt];
+      GM_getValue(GLOBAL_KEY, '[]'), GM_getValue('palOk', '{}'), GM_getValue('palOff', ''), GM_getValue(MISS_KEY, '{}'), GM_getValue(OPT_KEY, '{}'), palDbAt];
     if (pendCache && pendCache.sig.every((v, i) => v === sig[i])) return pendCache.out;
     const out = pendingCalc();
     pendCache = { sig, out };
@@ -2006,6 +2011,7 @@
     if ((it.sellerKey && sellers[it.sellerKey]) || (it.sellerName && sellers['name:' + it.sellerName.toLowerCase()])) {
       return `продавец «${it.sellerName || it.sellerKey}» у вас в скрытых`;
     }
+    if (loadOpts().noNewTag && isNewTag(it)) return 'состояние «Новое с биркой» — такие скрыты (⚙️ → «Скрывать „Новое с биркой“»)';
     const text = itemText(it);
     const g = findWord(text, loadGlobal());
     if (g) return `сработало общее стоп-слово «${g}»`;
@@ -3044,6 +3050,174 @@
     okBtn.disabled = false; okBtn.textContent = 'Закрыть и обновить страницу';
   }
 
+  // ---------------- перестройка поисков v5.8 (один раз на каждом устройстве) ----------------
+  // Убрать бренды, добавить новые (коды узнаём на Авито), дополнить аксессуары брендами из одежды.
+  // Коды брендов в группах по 7 по названию поиска не восстановить (бренды всегда стоят вместе),
+  // поэтому для поисков, где бренд надо убрать, открываем сам поиск: Авито пишет в нём, какие бренды выбраны.
+  const PLAN58 = {
+    remove: ['Off White', 'Fear of God', 'Represent', '1017 Alyx 9SM', 'Alyx', 'Ambush', 'Cav Empt', 'Ksubi', 'Maharishi', 'Human Made'],
+    add: [{ name: 'G-Star Raw', keys: ['gstar'] }, { name: 'Replay', keys: ['replay'] }, { name: 'Marithe Francois Girbaud', keys: ['girbaud'] }],
+    text: [{ name: 'Energie', q: 'energie' }], // такого бренда нет в фильтре Авито — ищем по тексту
+  };
+  const key2 = (t) => brandKey(t).replace(/ /g, '');
+  const rmKeys = PLAN58.remove.map(key2);
+  const isRemoved = (name) => String(name).split('/').some((part) => { const k = key2(part); return k && rmKeys.some((r) => k === r || k.startsWith(r)); });
+  // названия брендов из названия поиска: «👟 Обувь: A, B» → [A, B], «👕 Kenzo — одежда» → [Kenzo], «KENZO» → [KENZO]
+  function searchBrandNames(name) {
+    const n = String(name || '').replace(/\s*🆕$/u, '');
+    let body = n.replace(/^[^A-Za-zА-Яа-яЁё0-9]+/u, '');
+    if (body.includes(':')) body = body.slice(body.indexOf(':') + 1);
+    else if (body.includes(' — ')) body = body.slice(0, body.indexOf(' — '));
+    return body.split(',').map((x) => x.trim()).filter(Boolean);
+  }
+  const fOf = (url) => { try { return avfParse(new URL(url).searchParams.get('f')); } catch { return null; } };
+  const brandIdsOf = (url) => { const p = fOf(url); return p ? [...p.singles.filter(([k]) => k === P_BRAND).map(([, v]) => v), ...((p.multi.find(([k]) => k === P_BRAND) || [0, []])[1])] : []; };
+  function withBrandIds(url, ids) {
+    const p = fOf(url);
+    const singles = p.singles.filter(([k]) => k !== P_BRAND), multi = p.multi.filter(([k]) => k !== P_BRAND);
+    if (ids.length === 1) singles.push([P_BRAND, ids[0]]); else multi.push([P_BRAND, ids]);
+    return url.replace(/([?&]f=)[^&]*/, '$1' + avfEncode({ singles, multi, json: p.json }));
+  }
+  const kindUrl = (kindKey, { ids = [], q = null }) => {
+    const singles = [[P_CAT, KIND[kindKey].id]], multi = [];
+    if (kindKey === 'odezhda') multi.push([P_SIZE, STD.sizes]);
+    if (kindKey === 'obuv') multi.push([P_SHOE, STD.shoes]);
+    if (ids.length === 1) singles.push([P_BRAND, ids[0]]); else if (ids.length) multi.push([P_BRAND, ids]);
+    const f = avfEncode({ singles, multi, json: [P_PRICE, STD.price] });
+    return `https://www.avito.ru${catPath(kindKey)}?d=1&f=${f}${q ? '&q=' + encodeURIComponent(q) : ''}&s=104`;
+  };
+  const KIND_OF = { odezhda: 'odezhda', obuv: 'obuv', aks: 'aksessuary' };
+  const kindKeyOf = (s) => { const k = searchKind(s); if (k !== 'aks') return KIND_OF[k] || ''; return /^👜/u.test(s.name) ? 'sumki' : 'aksessuary'; };
+
+  async function runPlan58() {
+    if (feedRunning || mergeRunning) { alert('Сейчас идёт проверка поисков — попробуйте через минуту.'); return; }
+    const st0 = String(GM_getValue('plan58', ''));
+    if (st0.startsWith('running') && Date.now() - +st0.split(':')[1] < 15 * 60000) { alert('Перестройка уже идёт в другой вкладке.'); return; }
+    let log;
+    modal('🔧 Перестройка поисков', (box) => { log = el('div'); log.style.cssText = 'max-height:55vh;overflow:auto;white-space:pre-wrap;font-size:13px'; box.append(log); });
+    const say = (t) => { log.textContent += t + '\n'; log.scrollTop = 1e9; };
+    mergeRunning = true; // фоновая проверка и описания ждут
+    GM_setValue('plan58', 'running:' + Date.now());
+    try {
+      await backupTick(true);
+      say('Копия текущих поисков сохранена в «🗂 Копии».');
+      const list = load();
+      const report = { removedSearches: [], trimmed: [], skipped: [], added: [] };
+      // 1) убираем бренды
+      say('\n1) Убираю бренды: ' + PLAN58.remove.join(', '));
+      for (const s of [...list]) {
+        const names = searchBrandNames(s.name);
+        if (!names.some(isRemoved)) continue;
+        const keep = names.filter((n) => !isRemoved(n));
+        if (!keep.length) { list.splice(list.indexOf(s), 1); report.removedSearches.push(s.name); say('  ✓ удалён поиск «' + s.name + '»'); continue; }
+        let sel = null;
+        try {
+          const u = new URL(s.url);
+          const bd = pageFilters(await getPage(u.pathname + u.search)).find((d) => d.attrId === P_BRAND);
+          sel = bd && bd.selectedValue;
+        } catch (e) { say('  ✗ «' + s.name + '»: ' + e.message); }
+        if (!sel || !sel.length) { report.skipped.push(s.name); say('  ✗ «' + s.name + '»: Авито не показал выбранные бренды — оставляю как было'); continue; }
+        const drop = new Set(sel.filter((v) => isRemoved(v.name)).map((v) => +v.value));
+        const ids = brandIdsOf(s.url).filter((id) => !drop.has(id));
+        if (!drop.size || !ids.length) { report.skipped.push(s.name); say('  ✗ «' + s.name + '»: не нашёл, какие коды убрать — оставляю как было'); continue; }
+        s.url = withBrandIds(s.url, ids);
+        s.name = s.name.slice(0, s.name.indexOf(':') + 1) + ' ' + keep.join(', ');
+        report.trimmed.push(s.name); say(`  ✓ «${s.name}» (убрано кодов: ${drop.size})`);
+      }
+      // 2) новые бренды: коды из фильтра «Бренд» на странице раздела
+      say('\n2) Ищу коды брендов: ' + PLAN58.add.map((a) => a.name).join(', '));
+      const found = [], notFound = [];
+      for (const kindKey of ['odezhda', 'obuv']) {
+        if (found.length + notFound.length === PLAN58.add.length && !notFound.length) break;
+        let values = [];
+        try { const bd = pageFilters(await getPage(catPath(kindKey) + '?d=1')).find((d) => d.attrId === P_BRAND); values = (bd && bd.values) || []; }
+        catch (e) { say('  ✗ ' + e.message); }
+        for (const a of PLAN58.add) {
+          if (found.some((f) => f.a === a)) continue;
+          const hits = values.filter((v) => a.keys.some((k) => key2(v.name).includes(k)));
+          if (hits.length) {
+            const best = hits.sort((x, y) => String(x.name).length - String(y.name).length)[0];
+            found.push({ a, id: +best.value, name: String(best.name) }); say(`  ✓ ${best.name}: код ${best.value}`);
+          }
+        }
+      }
+      for (const a of PLAN58.add) if (!found.some((f) => f.a === a)) { notFound.push(a); say(`  ✗ ${a.name} — нет в фильтре Авито, буду искать по тексту`); }
+      const has = (url) => list.some((x) => fingerprint(x.url) === fingerprint(url));
+      const banOf = (kindKey) => ((list.find((x) => kindKeyOf(x) === kindKey) || {}).ban || []).slice();
+      const newOnes = [];
+      const push = (name, url, kindKey) => { if (has(url) || newOnes.some((x) => fingerprint(x.url) === fingerprint(url))) return; newOnes.push({ name, url, kindKey, ban: kindKey === 'aksessuary' || kindKey === 'sumki' ? banOf(kindKey) : [] }); };
+      if (found.length) {
+        const ids = found.map((f) => f.id), nm = found.map((f) => f.name).join(', ');
+        push(`👕 Деним 90-х и 2000-х: ${nm}`, kindUrl('odezhda', { ids }), 'odezhda');
+        push(`👟 Обувь: ${nm}`, kindUrl('obuv', { ids }), 'obuv');
+        push(`👜 Сумки: ${nm}`, kindUrl('sumki', { ids }), 'sumki');
+      }
+      for (const t of [...PLAN58.text, ...notFound.map((a) => ({ name: a.name, q: a.keys[0] === 'gstar' ? 'g-star' : a.name }))]) {
+        push(`👕 ${t.name} — одежда`, kindUrl('odezhda', { q: t.q }), 'odezhda');
+        push(`👟 ${t.name} — обувь`, kindUrl('obuv', { q: t.q }), 'obuv');
+        push(`🕶 ${t.name} — аксессуары`, kindUrl('aksessuary', { q: t.q }), 'aksessuary');
+        push(`👜 ${t.name} — сумки`, kindUrl('sumki', { q: t.q }), 'sumki');
+      }
+      // 3) аксессуары: всех брендов одежды, которых там нет; группами до 7 кодов
+      say('\n3) Дополняю аксессуары брендами из одежды…');
+      const accIds = new Set(list.filter((x) => kindKeyOf(x) === 'aksessuary').flatMap((x) => brandIdsOf(x.url)));
+      const accNames = new Set(list.filter((x) => kindKeyOf(x) === 'aksessuary').flatMap((x) => searchBrandNames(x.name)).map(key2));
+      const groups = [];
+      for (const s of list) {
+        if (kindKeyOf(s) !== 'odezhda') continue;
+        const ids = brandIdsOf(s.url).filter((id) => !accIds.has(id));
+        if (!ids.length) continue;
+        const names = searchBrandNames(s.name).filter((n) => !accNames.has(key2(n)));
+        groups.push({ ids, names: names.length ? names : searchBrandNames(s.name) });
+        ids.forEach((id) => accIds.add(id));
+      }
+      if (found.length) groups.push({ ids: found.map((f) => f.id), names: found.map((f) => f.name) });
+      const bins = [];
+      for (const g of groups) {
+        const b = bins[bins.length - 1];
+        if (b && b.ids.length + g.ids.length <= 7) { b.ids.push(...g.ids); b.names.push(...g.names); } else bins.push({ ids: [...g.ids], names: [...g.names] });
+      }
+      for (const b of bins) push(`🕶 Аксессуары: ${b.names.join(', ')}`, kindUrl('aksessuary', { ids: b.ids }), 'aksessuary');
+      say(`  новых поисков аксессуаров: ${bins.length} (брендов ${bins.reduce((n, b) => n + b.names.length, 0)})`);
+      // 4) проверяем на Авито по одному новому поиску каждого вида
+      say('\n4) Проверяю, понял ли Авито фильтры…');
+      const okKinds = new Set();
+      for (const kindKey of [...new Set(newOnes.map((x) => x.kindKey))]) {
+        const m = newOnes.find((x) => x.kindKey === kindKey && !/&q=/.test(x.url)) || newOnes.find((x) => x.kindKey === kindKey);
+        if (/&q=/.test(m.url)) { okKinds.add(kindKey); continue; } // текстовый поиск проверять нечем
+        try {
+          const probs = await verifyMerge({ url: m.url, name: m.name, kind: kindKey === 'aksessuary' || kindKey === 'sumki' ? 'aks' : kindKey });
+          if (probs.length) say(`  ✗ ${m.name}: Авито не понял (${probs.join(', ')}) — такие не добавляю`);
+          else { okKinds.add(kindKey); say(`  ✓ ${m.name}`); }
+        } catch (e) { say(`  ✗ ${m.name}: ${e.message} — такие не добавляю`); }
+      }
+      const t0 = Date.now();
+      newOnes.filter((x) => okKinds.has(x.kindKey)).forEach((x, i) => {
+        list.push({ id: t0 + i, name: x.name, url: x.url, ban: x.ban, seen: [], lastVisit: 0 });
+        report.added.push(x.name);
+      });
+      save(list);
+      GM_setValue('plan58', 'done:' + Date.now());
+      say(`\nГотово. Удалено поисков: ${report.removedSearches.length}, изменено: ${report.trimmed.length}, добавлено: ${report.added.length}` +
+        (report.skipped.length ? `, не тронуто (не вышло): ${report.skipped.length}` : '') + `. Всего поисков: ${list.length}.`);
+      say('Новые поиски при первой проверке только запомнят текущую выдачу — новое пойдёт со следующей.');
+      const b = mbtn('Обновить страницу', true); b.onclick = () => location.reload(); log.parentNode.append(b);
+    } catch (e) {
+      GM_setValue('plan58', '');
+      say('\n❌ ' + e.message + '\nПоиски не изменены. Попробуйте позже: ⚙️ → «🔧 Перестроить поиски (5.8)».');
+    } finally { mergeRunning = false; }
+  }
+  // предлагаем один раз на устройстве, когда вкладка на экране и ничего не проверяется
+  setTimeout(() => {
+    const st = String(GM_getValue('plan58', ''));
+    if (st.startsWith('done') || (st.startsWith('running') && Date.now() - +st.split(':')[1] < 15 * 60000)) return;
+    if (!load().length || sessionStorage.getItem('ams-plan58-no') || document.visibilityState !== 'visible' || feedRunning) return;
+    if (confirm('⭐ Обновление 5.8: перестроить поиски?\n\n• убрать: ' + PLAN58.remove.join(', ') +
+      '\n• добавить: G-Star, Replay, Marithé François Girbaud и Energie (по тексту)\n• дополнить аксессуары брендами из одежды (там было только 39 брендов)\n\n' +
+      'Займёт 1–2 минуты. Копия текущих поисков сохранится в «🗂 Копии».')) runPlan58();
+    else sessionStorage.setItem('ams-plan58-no', '1');
+  }, 7000);
+
   // ---------------- панель ----------------
   let filterText = '';
 
@@ -3228,7 +3402,7 @@
     let bar = document.getElementById('ams-bar');
     if (!n) { bar?.remove(); return; }
     const showing = document.body.classList.contains('ams-show-hidden');
-    const label = `Скрыто по стоп-словам: ${n}`;
+    const label = `Скрыто: ${n}`;
     const btnText = showing ? 'спрятать' : 'показать';
     if (bar && bar.dataset.state === label + btnText) return; // не трогаем DOM без нужды
     if (!bar) { bar = el('div'); bar.id = 'ams-bar'; document.body.appendChild(bar); }
@@ -3244,12 +3418,14 @@
     if (!isSearchPage()) return;
     const saved = pageFp ? loadRO().find((x) => fingerprint(x.url) === pageFp) : null;
     const words = [...new Set([...loadGlobal(), ...((saved && saved.ban) || [])])];
+    const noTag = loadOpts().noNewTag;
     let hidden = 0;
     document.querySelectorAll('[data-marker="item"]').forEach((card) => {
       const text = words.length ? cardText(card) : '';
       // связкам «бренд+слово» нужен и бренд — он есть только в полном тексте карточки
       const full = words.some((w) => w.includes('+')) ? text + '\n' + norm(card.textContent || '') : text;
-      const hit = findWord(text, words.filter((w) => !w.includes('+'))) || findWord(full, words.filter((w) => w.includes('+')));
+      const hit = (noTag && /новое с бирк/.test(norm(card.textContent || '')) ? 'новое с биркой' : '') ||
+        findWord(text, words.filter((w) => !w.includes('+'))) || findWord(full, words.filter((w) => w.includes('+')));
       if (hit) {
         hidden++;
         if (card.dataset.amsWord !== hit) {
