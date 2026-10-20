@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Avito — скрыть продавцов + мои поиски
 // @namespace    avito-seller-blocker
-// @version      6.5
+// @version      6.6
 // @description  Скрытие продавцов, сохранённые поиски, стоп-слова, лента новых объявлений по всем поискам
 // @match        https://www.avito.ru/*
 // @match        https://m.avito.ru/*
@@ -1467,7 +1467,7 @@
   // Чистим ленту от лишнего. Непросмотренные объявления НЕ трогаем (раньше обрезали всё подряд до 400 —
   // и после долгого перерыва большая часть новых пропадала). Режем только просмотренные и скрытые фильтрами.
   // номер версии кода: вкладка со старой версией, увидев более новую, перестаёт проверять в фоне
-  const CODE_VER = 65;
+  const CODE_VER = 66;
   if (+GM_getValue('codeVer', 0) < CODE_VER) GM_setValue('codeVer', CODE_VER);
   const PENDING_MAX = 5000; // аварийный потолок для непросмотренных
   function trimFeed(feed) {
@@ -1926,7 +1926,8 @@
     for (const s of list.filter((x) => x.warn === 'empty').slice(0, 3)) {
       if (!targets.some((t) => t.url === s.url)) targets.push({ label: 'поиск без объявлений: ' + s.name, url: s.url });
     }
-    const one = list.find((x) => brandIdsOf(x.url).length === 1 && !pathHasBrand(x.url));
+    const single = list.filter((x) => brandIdsOf(x.url).length === 1); // свежие адреса с брендом (brandFix66) — в первую очередь
+    const one = single.find((x) => !pathHasBrand(x.url)) || single.find((x) => !x.lastTs) || single[0];
     if (one && !targets.some((t) => t.url === one.url)) targets.push({ label: 'поиск одного бренда: ' + one.name, url: one.url });
     const cu = targets[0] && condUrl(targets[0].url);
     if (cu) targets.push({ label: 'поиск с фильтром «Состояние»: ' + targets[0].label.split(': ').slice(1).join(': '), url: cu.url });
@@ -3249,7 +3250,7 @@
     const singles = [[P_CAT, KIND[kindKey].id]], multi = [];
     if (kindKey === 'odezhda') multi.push([P_SIZE, STD.sizes]);
     if (kindKey === 'obuv') multi.push([P_SHOE, STD.shoes]);
-    if (ids.length) multi.push([P_BRAND, ids]); // один бренд — тоже списком (см. brandFix64)
+    if (ids.length) multi.push([P_BRAND, ids]); // один бренд brandFix66 перепишет на адрес с брендом
     const f = avfEncode({ singles, multi, json: [P_PRICE, STD.price] });
     return `https://www.avito.ru${catPath(kindKey)}?d=1&f=${f}${q ? '&q=' + encodeURIComponent(q) : ''}&s=104`;
   };
@@ -3435,23 +3436,40 @@
     GM_setValue('plan65', 'done:' + Date.now());
   }
   setTimeout(addDenim65, 4000);
-  // v6.4. Один бренд Авито пишет в адрес страницы (…/kenzo-…, как makeBrandUrl). Бренд одиночным параметром в f
-  // без такого адреса Авито открывает пустой оболочкой без объявлений: в файле страниц 20.10 «Levi's — джинсы» —
-  // 360 КБ, ни одного объявления. Так же были записаны поиски, где после убирания брендов остался один
-  // («Обувь: Hood By Air»). Переписываем бренд списком из одного — при каждом запуске, без запросов (как enforceRemoved).
-  function brandFix64() {
+  // Поиск одного бренда Авито отдаёт только по адресу с брендом в пути: …/dzhinsy/levi_sr-<код с брендом>, бренд
+  // одиночным параметром и в f. Любой другой адрес (бренд в f без пути, бренд списком из одного) — пустая заготовка
+  // без объявлений, а браузер потом сам переходит на адрес с брендом (скриншот пользователя 20.10: «Levi's — джинсы»).
+  // Скрипт этот переход не видит, поэтому сразу пишем адрес как у Авито. Слаг — по правилу Авито (совпало у 592 из 594
+  // ссылок на бренды в файле подразделов); где название поиска не совпадает с названием в каталоге — из BRAND_SLUG.
+  const BRAND_SLUG = { 1689692: 'levi_sr' }; // Levi'S®
+  const SLUG_RU = Object.fromEntries([...'абвгдеёжзийклмнопрстуфхцчшщъыьэюя'].map((c, i) =>
+    [c, ['a', 'b', 'v', 'g', 'd', 'e', 'e', 'zh', 'z', 'i', 'y', 'k', 'l', 'm', 'n', 'o', 'p', 'r', 's', 't', 'u', 'f', 'h', 'ts', 'ch', 'sh', 'sch', '', 'y', '', 'e', 'yu', 'ya'][i]]));
+  const brandSlug = (name) => String(name).toLowerCase().replace(/&/g, 'and').replace(/®/g, 'r').replace(/\./g, '_dot_').replace(/\+/g, '_plus_')
+    .replace(/[а-яё]/g, (c) => SLUG_RU[c]).normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  function seoBrandUrl(url, id, slug) {
+    const u = new URL(url), p = fOf(url);
+    const i = u.pathname.lastIndexOf('-');
+    const pathSingles = avfParse(u.pathname.slice(i + 1)).singles.filter(([k]) => k !== P_BRAND);
+    u.pathname = u.pathname.slice(0, i) + '/' + slug + '-' + avfEncode({ singles: [...pathSingles, [P_BRAND, id]] });
+    const f = avfEncode({ singles: [...p.singles.filter(([k]) => k !== P_BRAND), [P_BRAND, id]], multi: p.multi.filter(([k]) => k !== P_BRAND), json: p.json });
+    return u.origin + u.pathname + u.search.replace(/([?&]f=)[^&]*/, '$1' + f);
+  }
+  // при каждом запуске, без запросов (как enforceRemoved): старый список мог вернуться из копии или переноса
+  function brandFix66() {
     if (mergeRunning || feedRunning) return;
     const list = load();
     let n = 0;
     for (const s of list) {
-      const p = fOf(s.url);
-      if (!p || !p.singles.some(([k]) => k === P_BRAND) || pathHasBrand(s.url)) continue;
-      s.url = withBrandIds(s.url, [...new Set(brandIdsOf(s.url))]);
-      s.warn = ''; n++;
+      const ids = [...new Set(brandIdsOf(s.url))];
+      if (ids.length !== 1 || pathHasBrand(s.url)) continue;
+      const names = searchBrandNames(s.name);
+      const slug = BRAND_SLUG[ids[0]] || (names.length === 1 && brandSlug(names[0]));
+      if (!slug) continue;
+      try { s.url = seoBrandUrl(s.url, ids[0], slug); s.warn = ''; n++; } catch { /* не фильтр Авито */ }
     }
     if (n) save(list);
   }
-  setTimeout(brandFix64, 3500);
+  setTimeout(brandFix66, 3500);
   // «Новое с биркой» убираем ещё на Авито: фильтр «Состояние» (110385, одинаковый во всех 4 разделах — файл подразделов
   // 20.10) без «Новое с биркой». В выдаче остаются настоящие вещи, меньше лишних страниц и разбора. Адрес поиска
   // не меняется — фильтр добавляется при проверке (пока включено «не показывать новое с биркой»). Понял ли его Авито,
