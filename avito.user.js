@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Avito — скрыть продавцов + мои поиски
 // @namespace    avito-seller-blocker
-// @version      6.3
+// @version      6.4
 // @description  Скрытие продавцов, сохранённые поиски, стоп-слова, лента новых объявлений по всем поискам
 // @match        https://www.avito.ru/*
 // @match        https://m.avito.ru/*
@@ -1304,7 +1304,9 @@
   // S — состояние проверки в памяти (см. checkAll): поиски, лента, что поменялось. Пишем в хранилище пачкой.
   async function checkOne(s, S) {
     const feed = S.feed;
-    const u = new URL(s.url);
+    const cond = loadOpts().noNewTag ? condUrl(s.url) : null;
+    const url = cond && condOk()[cond.cat] !== 0 ? cond.url : s.url;
+    const u = new URL(url);
     const res = await fetch(location.origin + u.pathname + u.search, { credentials: 'include' });
     const html = await res.text();
     const cs = S.mem.get(s.id);
@@ -1319,10 +1321,21 @@
     let items = all.filter((x) => !x.extra);          // только настоящая выдача, без «других городов»
     const extraOnly = hasTs && !items.length;
     if (!hasTs) items = quickCards(html);             // запасной путь, если Авито поменяет формат
+    if (url !== s.url && res.ok && condOk()[cond.cat] !== 1 && !extraOnly) {
+      // первый поиск раздела с фильтром «Состояние»: понял ли его Авито
+      if (items.length) condSet(cond.cat, 1);
+      else {
+        const u0 = new URL(s.url);
+        const plain = parseState(await (await fetch(location.origin + u0.pathname + u0.search, { credentials: 'include' })).text());
+        if (plain.some((x) => !x.extra && !isNewTag(x))) { condSet(cond.cat, 0); return checkOne(s, S); }
+      }
+    }
     if (!items.length && !extraOnly) {
       if (res.status === 429 || res.status === 403 || /captcha|Доступ ограничен|firewall/i.test(html.slice(0, 30000))) {
         return { blocked: true };
       }
+      // www.avito.ru пишет в выдаче, как понял фильтры; нет этого и нет объявлений — Авито открыл пустую оболочку
+      set('warn', /^www\./.test(location.hostname) && !/"page":\d+,"params"/.test(html) ? 'empty' : '');
       return { found: 0 };
     }
     // если вся страница новая — новых могло быть больше 50: дочитываем 2-ю и 3-ю страницы
@@ -1454,7 +1467,7 @@
   // Чистим ленту от лишнего. Непросмотренные объявления НЕ трогаем (раньше обрезали всё подряд до 400 —
   // и после долгого перерыва большая часть новых пропадала). Режем только просмотренные и скрытые фильтрами.
   // номер версии кода: вкладка со старой версией, увидев более новую, перестаёт проверять в фоне
-  const CODE_VER = 63;
+  const CODE_VER = 64;
   if (+GM_getValue('codeVer', 0) < CODE_VER) GM_setValue('codeVer', CODE_VER);
   const PENDING_MAX = 5000; // аварийный потолок для непросмотренных
   function trimFeed(feed) {
@@ -1910,6 +1923,13 @@
     }
     const jeans = list.find((x) => (fOf(x.url) || { singles: [] }).singles.some(([p]) => p === 176));
     if (jeans) targets.push({ label: 'поиск подраздела: ' + jeans.name, url: jeans.url });
+    for (const s of list.filter((x) => x.warn === 'empty').slice(0, 3)) {
+      if (!targets.some((t) => t.url === s.url)) targets.push({ label: 'поиск без объявлений: ' + s.name, url: s.url });
+    }
+    const one = list.find((x) => brandIdsOf(x.url).length === 1 && !pathHasBrand(x.url));
+    if (one && !targets.some((t) => t.url === one.url)) targets.push({ label: 'поиск одного бренда: ' + one.name, url: one.url });
+    const cu = targets[0] && condUrl(targets[0].url);
+    if (cu) targets.push({ label: 'поиск с фильтром «Состояние»: ' + targets[0].label.split(': ').slice(1).join(': '), url: cu.url });
     const items = Object.values(loadFeedRO()).sort((a, b) => (b.found || 0) - (a.found || 0));
     const pickItem = (label, f) => { const it = items.find(f); if (it && !targets.some((t) => t.url === it.url)) targets.push({ label: label + ': ' + it.title, url: it.url, id: it.id, title: it.title }); };
     pickItem('объявление, описание скачалось', (x) => (x.fullDesc || '').length > 100);
@@ -2602,6 +2622,14 @@
         w.style.cssText = 'color:#d32f2f;margin-top:4px';
         status.append(w);
       }
+      const empty = loadRO().filter((x) => x.warn === 'empty');
+      if (empty.length) {
+        const w = el('div', null, `⚠️ Эти поиски Авито открывает без объявлений (пустая страница): ` +
+          `${empty.slice(0, 5).map((x) => '«' + x.name + '»').join(', ')}${empty.length > 5 ? ` и ещё ${empty.length - 5}` : ''}. ` +
+          `Пришлите разработчику «💾 Страницы для разработчика» из ⚙️.`);
+        w.style.cssText = 'color:#d32f2f;margin-top:4px';
+        status.append(w);
+      }
       const bad = loadRO().filter((x) => x.warn === 'region');
       if (bad.length) {
         const w = el('div', null, `⚠️ В выбранном регионе нет объявлений — Авито показывает случайные из других городов, ` +
@@ -3208,19 +3236,21 @@
     else if (body.includes(' — ')) body = body.slice(0, body.indexOf(' — '));
     return body.split(',').map((x) => x.trim()).filter(Boolean);
   }
+  // бренд в самом адресе страницы: …/kenzo-<код>, в коде есть бренд (так Авито пишет поиск одного бренда)
+  const pathHasBrand = (url) => { try { return avfParse(new URL(url).pathname.split('-').pop()).singles.some(([k]) => k === P_BRAND); } catch { return false; } };
   const fOf = (url) => { try { return avfParse(new URL(url).searchParams.get('f')); } catch { return null; } };
   const brandIdsOf = (url) => { const p = fOf(url); return p ? [...p.singles.filter(([k]) => k === P_BRAND).map(([, v]) => v), ...((p.multi.find(([k]) => k === P_BRAND) || [0, []])[1])] : []; };
   function withBrandIds(url, ids) {
     const p = fOf(url);
     const singles = p.singles.filter(([k]) => k !== P_BRAND), multi = p.multi.filter(([k]) => k !== P_BRAND);
-    if (ids.length === 1) singles.push([P_BRAND, ids[0]]); else multi.push([P_BRAND, ids]);
+    if (ids.length === 1 && pathHasBrand(url)) singles.push([P_BRAND, ids[0]]); else multi.push([P_BRAND, ids]);
     return url.replace(/([?&]f=)[^&]*/, '$1' + avfEncode({ singles, multi, json: p.json }));
   }
   const kindUrl = (kindKey, { ids = [], q = null }) => {
     const singles = [[P_CAT, KIND[kindKey].id]], multi = [];
     if (kindKey === 'odezhda') multi.push([P_SIZE, STD.sizes]);
     if (kindKey === 'obuv') multi.push([P_SHOE, STD.shoes]);
-    if (ids.length === 1) singles.push([P_BRAND, ids[0]]); else if (ids.length) multi.push([P_BRAND, ids]);
+    if (ids.length) multi.push([P_BRAND, ids]); // один бренд — тоже списком (см. brandFix64)
     const f = avfEncode({ singles, multi, json: [P_PRICE, STD.price] });
     return `https://www.avito.ru${catPath(kindKey)}?d=1&f=${f}${q ? '&q=' + encodeURIComponent(q) : ''}&s=104`;
   };
@@ -3377,8 +3407,8 @@
   // + код бренда из каталога + размеры XS–M. Аксессуары, сумки и другую одежду Levi's не ищем.
   const P_SUBCAT = 176, JEANS = 752, JEANS_PATH = '/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/dzhinsy-ASgBAgICAkTeAtgL4ALgCw';
   const LEVIS_JEANS = { name: "👕 Levi's — джинсы", id: 1689692 };
-  const levisUrl = () => `https://www.avito.ru${JEANS_PATH}?d=1&f=${avfEncode({ singles: [[P_CAT, 748], [P_SUBCAT, JEANS], [P_BRAND, LEVIS_JEANS.id]],
-    multi: [[P_SIZE, STD.sizes]], json: [P_PRICE, STD.price] })}&s=104`;
+  const levisUrl = () => `https://www.avito.ru${JEANS_PATH}?d=1&f=${avfEncode({ singles: [[P_CAT, 748], [P_SUBCAT, JEANS]],
+    multi: [[P_SIZE, STD.sizes], [P_BRAND, [LEVIS_JEANS.id]]], json: [P_PRICE, STD.price] })}&s=104`;
   function addLevis62() {
     if (GM_getValue('plan62', '') || mergeRunning || feedRunning) return;
     const list = load(), url = levisUrl();
@@ -3390,6 +3420,36 @@
     GM_setValue('plan62', 'done:' + Date.now());
   }
   setTimeout(addLevis62, 4000);
+  // v6.4. Один бренд Авито пишет в адрес страницы (…/kenzo-…, как makeBrandUrl). Бренд одиночным параметром в f
+  // без такого адреса Авито открывает пустой оболочкой без объявлений: в файле страниц 20.10 «Levi's — джинсы» —
+  // 360 КБ, ни одного объявления. Так же были записаны поиски, где после убирания брендов остался один
+  // («Обувь: Hood By Air»). Переписываем бренд списком из одного — при каждом запуске, без запросов (как enforceRemoved).
+  function brandFix64() {
+    if (mergeRunning || feedRunning) return;
+    const list = load();
+    let n = 0;
+    for (const s of list) {
+      const p = fOf(s.url);
+      if (!p || !p.singles.some(([k]) => k === P_BRAND) || pathHasBrand(s.url)) continue;
+      s.url = withBrandIds(s.url, [...new Set(brandIdsOf(s.url))]);
+      s.warn = ''; n++;
+    }
+    if (n) save(list);
+  }
+  setTimeout(brandFix64, 3500);
+  // «Новое с биркой» убираем ещё на Авито: фильтр «Состояние» (110385, одинаковый во всех 4 разделах — файл подразделов
+  // 20.10) без «Новое с биркой». В выдаче остаются настоящие вещи, меньше лишних страниц и разбора. Адрес поиска
+  // не меняется — фильтр добавляется при проверке (пока включено «не показывать новое с биркой»). Понял ли его Авито,
+  // проверяем на первом поиске каждого раздела: с фильтром пусто, а без него есть ношеное — значит, не понял.
+  const P_COND = 110385, COND_USED = [431223, 431224, 2804446]; // отличное, хорошее, удовлетворительное
+  const condOk = () => peekJSON('condOk', '{}');
+  const condSet = (cat, v) => GM_setValue('condOk', JSON.stringify({ ...condOk(), [cat]: v }));
+  function condUrl(url) {
+    const p = fOf(url);
+    if (!p || p.multi.some(([k]) => k === P_COND)) return null;
+    const cat = (p.singles.find(([k]) => k === P_CAT) || [0, 0])[1];
+    return { cat, url: url.replace(/([?&]f=)[^&]*/, '$1' + avfEncode({ singles: p.singles, multi: [...p.multi, [P_COND, COND_USED]], json: p.json })) };
+  }
   setTimeout(fixDenim59, 5000);
   // На m.avito.ru проверка фильтров в 5.8–5.9 не проходила никогда (страница не пишет, как Авито понял фильтры),
   // поэтому на телефоне перестройка убрала бренды, но ничего не добавила. Догружаем недостающее — один раз.
