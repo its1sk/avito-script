@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Avito — скрыть продавцов + мои поиски
 // @namespace    avito-seller-blocker
-// @version      6.7
+// @version      6.8
 // @description  Скрытие продавцов, сохранённые поиски, стоп-слова, лента новых объявлений по всем поискам
 // @match        https://www.avito.ru/*
 // @match        https://m.avito.ru/*
@@ -10,6 +10,9 @@
 // @grant        GM_registerMenuCommand
 // @grant        GM_setClipboard
 // @grant        GM_notification
+// @grant        GM_xmlhttpRequest
+// @connect      api.github.com
+// @connect      gist.githubusercontent.com
 // @run-at       document-idle
 // @updateURL    https://raw.githubusercontent.com/its1sk/avito-script/main/avito.user.js
 // @downloadURL  https://raw.githubusercontent.com/its1sk/avito-script/main/avito.user.js
@@ -522,6 +525,126 @@
       }
       ok.onclick = go;
       box.append(ta, fileIn, pick, paste, ok, cancel, err);
+    });
+  }
+
+  // ---------------- перенос через GitHub (секретный gist) ----------------
+  // Одна кнопка вместо файла: та же копия, что у «📤 Перенос», уходит в секретный gist пользователя, на другом
+  // устройстве загружается оттуда. Нужен токен GitHub только с правом «gist»: хранится в GM этого устройства,
+  // в копию и перенос не попадает. Gist ищем по описанию — номер с устройства на устройство переносить не нужно.
+  const GH_API = 'https://api.github.com', GH_DESC = 'avito-script: перенос между устройствами';
+  const GH_FILE = 'avito-perenos.txt', GH_INFO = 'info.json';
+  function ghReq(method, url, body) {
+    return new Promise((resolve, reject) => GM_xmlhttpRequest({
+      method, url, anonymous: true, timeout: 60000, data: body ? JSON.stringify(body) : undefined,
+      headers: { Authorization: 'Bearer ' + GM_getValue('ghToken', ''), Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
+      onload: (r) => {
+        let j = null; try { j = JSON.parse(r.responseText); } catch { /* сам файл копии — не JSON */ }
+        if (r.status >= 200 && r.status < 300) { resolve(j === null ? r.responseText : j); return; }
+        reject(Object.assign(new Error(r.status === 401 ? 'GitHub не принял токен — введите его заново (🔑).'
+          : `GitHub ответил ${r.status}${j && j.message ? ': ' + j.message : ''}`), { status: r.status }));
+      },
+      onerror: () => reject(new Error('нет связи с GitHub')),
+      ontimeout: () => reject(new Error('GitHub не ответил за минуту')),
+    }));
+  }
+  async function ghGist() {
+    const id = GM_getValue('ghGist', '');
+    if (id) return id;
+    const list = await ghReq('GET', `${GH_API}/gists?per_page=100&_=${Date.now()}`);
+    const g = (Array.isArray(list) ? list : []).find((x) => x.description === GH_DESC);
+    if (g) GM_setValue('ghGist', g.id);
+    return g ? g.id : '';
+  }
+  async function ghUpload() {
+    const data = { ...fullState(), copiedAt: Date.now() };
+    const info = { at: data.copiedAt, from: /Mobi|Android/i.test(navigator.userAgent) ? 'телефон' : 'ПК',
+      v: typeof GM_info !== 'undefined' ? GM_info.script.version : '?', searches: data.searches.length,
+      sellers: Object.keys(data.sellers).length, feed: Object.keys(data.feed).length };
+    const files = { [GH_FILE]: { content: await encode(data) }, [GH_INFO]: { content: JSON.stringify(info) } };
+    let id = await ghGist();
+    if (id) {
+      try { await ghReq('PATCH', `${GH_API}/gists/${id}`, { files }); return info; }
+      catch (e) { if (e.status !== 404) throw e; GM_setValue('ghGist', ''); } // gist удалили — заведём новый
+    }
+    const g = await ghReq('POST', `${GH_API}/gists`, { description: GH_DESC, public: false, files });
+    GM_setValue('ghGist', g.id);
+    return info;
+  }
+  async function ghFetch() {
+    const id = await ghGist();
+    if (!id) return null;
+    let g;
+    try { g = await ghReq('GET', `${GH_API}/gists/${id}?_=${Date.now()}`); }
+    catch (e) { if (e.status === 404) { GM_setValue('ghGist', ''); return null; } throw e; }
+    const f = g.files && g.files[GH_FILE];
+    if (!f) return null;
+    let info = {}; try { info = JSON.parse(g.files[GH_INFO].content); } catch { /* без сводки */ }
+    return { info, code: () => (f.truncated ? ghReq('GET', f.raw_url) : Promise.resolve(f.content)) }; // больше 1 МБ API отдаёт обрезанным
+  }
+  const ghWhen = (t) => new Date(t).toLocaleString('ru-RU', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' });
+  const ghAbout = (i) => `${i.from || '?'}, ${ghWhen(i.at)}: поисков ${i.searches}, скрытых продавцов ${i.sellers}, в ленте ${i.feed}`;
+
+  function ghUi() {
+    if (typeof GM_xmlhttpRequest !== 'function') { alert('Tampermonkey не дал скрипту доступ к сети. Обновите скрипт и разрешите доступ к api.github.com.'); return; }
+    if (!GM_getValue('ghToken', '')) { ghTokenUi(); return; }
+    modal('☁️ Перенос через GitHub', (box, close) => {
+      const st = el('div', null, 'Смотрю, что лежит в GitHub…'); st.style.cssText = 'color:#555';
+      const up = mbtn('⬆️ Отправить в GitHub', true), down = mbtn('⬇️ Загрузить отсюда'), key = mbtn('🔑 Токен'), cancel = mbtn('Закрыть');
+      const err = el('div'); err.style.cssText = 'color:#d32f2f;margin-top:6px;white-space:pre-wrap';
+      down.disabled = true;
+      let remote = null;
+      ghFetch().then((r) => {
+        remote = r;
+        st.textContent = r ? 'В GitHub лежит копия: ' + ghAbout(r.info) + '.' : 'В GitHub копии ещё нет — отправьте её с этого или другого устройства.';
+        down.disabled = !r;
+      }, (e) => { st.textContent = ''; err.textContent = '❌ ' + e.message; });
+      up.onclick = async () => {
+        up.disabled = true; up.textContent = '⏳ Отправляю…'; err.textContent = '';
+        try { const i = await ghUpload(); up.textContent = '✅ Отправлено'; st.textContent = 'В GitHub лежит копия: ' + ghAbout(i) + '. На другом устройстве: ⭐ → ☁️ GitHub → «⬇️ Загрузить отсюда».'; }
+        catch (e) { up.disabled = false; up.textContent = '⬆️ Отправить в GitHub'; err.textContent = '❌ ' + e.message; }
+      };
+      down.onclick = async () => {
+        if (!remote) return;
+        if (!confirm(`Заменить всё на этом устройстве копией из GitHub (${ghAbout(remote.info)})?\nТекущие поиски сохранятся в «🗂 Копии».`)) return;
+        down.disabled = true; down.textContent = '⏳ Загружаю…'; err.textContent = '';
+        try {
+          const data = await decode(await remote.code());
+          if (!data || data.kind !== 'ams-local') throw new Error('копия в GitHub повреждена — отправьте её заново');
+          await backupTick(true);
+          close();
+          applyState(data, 'Загружено из GitHub');
+        } catch (e) { down.disabled = false; down.textContent = '⬇️ Загрузить отсюда'; err.textContent = '❌ ' + e.message; }
+      };
+      key.onclick = () => { close(); ghTokenUi(); };
+      cancel.onclick = close;
+      box.append(st, up, down, key, cancel, err);
+    });
+  }
+  function ghTokenUi() {
+    modal('🔑 Токен GitHub', (box, close) => {
+      const help = el('div');
+      help.innerHTML = 'Нужен один раз на каждом устройстве — один и тот же токен.<br>' +
+        '1. Откройте <a href="https://github.com/settings/tokens/new?scopes=gist&description=avito-script" target="_blank">github.com → новый токен</a> ' +
+        '(галочка «gist» уже стоит, больше ничего не нужно).<br>2. «Expiration» → «No expiration».<br>' +
+        '3. «Generate token» → скопируйте код <b>ghp_…</b> и вставьте сюда.<br>На телефон перешлите тот же код себе в Telegram.';
+      help.style.cssText = 'color:#333;font-size:13px';
+      const inp = el('input'); inp.placeholder = 'ghp_…'; inp.value = GM_getValue('ghToken', '');
+      inp.style.cssText = 'width:100%;box-sizing:border-box;border:1px solid #ddd;border-radius:8px;padding:8px;margin-top:8px;font:13px monospace';
+      const ok = mbtn('Сохранить', true), cancel = mbtn('Отмена'); cancel.onclick = close;
+      const err = el('div'); err.style.cssText = 'color:#d32f2f;margin-top:6px';
+      ok.onclick = async () => {
+        const t = inp.value.trim();
+        if (!/^(ghp_|github_pat_)\w{20,}$/.test(t)) { err.textContent = 'Это не похоже на токен GitHub (начинается с ghp_).'; return; }
+        const old = GM_getValue('ghToken', '');
+        GM_setValue('ghToken', t); ok.disabled = true; ok.textContent = '⏳ Проверяю…';
+        try {
+          GM_setValue('ghGist', ''); // найдём gist заново — токен мог быть от другого аккаунта
+          await ghReq('GET', `${GH_API}/gists?per_page=1&_=${Date.now()}`);
+          close(); ghUi();
+        } catch (e) { GM_setValue('ghToken', old); ok.disabled = false; ok.textContent = 'Сохранить'; err.textContent = '❌ ' + e.message; }
+      };
+      box.append(help, inp, ok, cancel, err);
     });
   }
 
@@ -1469,7 +1592,7 @@
   // Чистим ленту от лишнего. Непросмотренные объявления НЕ трогаем (раньше обрезали всё подряд до 400 —
   // и после долгого перерыва большая часть новых пропадала). Режем только просмотренные и скрытые фильтрами.
   // номер версии кода: вкладка со старой версией, увидев более новую, перестаёт проверять в фоне
-  const CODE_VER = 67;
+  const CODE_VER = 68;
   if (+GM_getValue('codeVer', 0) < CODE_VER) GM_setValue('codeVer', CODE_VER);
   const PENDING_MAX = 5000; // аварийный потолок для непросмотренных
   function trimFeed(feed) {
@@ -3676,10 +3799,13 @@
       if (w) { saveGlobal(w); render(); applyWords(); }
     };
     io.style.display = 'flex'; io.style.gap = '6px'; io.style.flexWrap = 'wrap'; io.style.justifyContent = 'flex-end';
+    const gh = el('button', 'ams-btn', '☁️ GitHub');
+    gh.title = 'Перенос между устройствами через GitHub — одной кнопкой, без файла';
+    gh.onclick = ghUi;
     const bk = el('button', 'ams-btn', '🗂 Копии');
     bk.title = 'Резервные копии: восстановить поиски, если что-то пропало';
     bk.onclick = openBackups;
-    io.append(glob, exp, imp, bk);
+    io.append(glob, gh, exp, imp, bk);
     // обновление с GitHub: Tampermonkey сам узнаёт ссылку .user.js и предлагает «Обновить» в тот же скрипт (данные не теряются)
     const upd = typeof GM_info !== 'undefined' && GM_info.script && (GM_info.script.downloadURL || GM_info.script.updateURL);
     if (upd) {
