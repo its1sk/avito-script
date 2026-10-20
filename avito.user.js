@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Avito — скрыть продавцов + мои поиски
 // @namespace    avito-seller-blocker
-// @version      6.4
+// @version      6.5
 // @description  Скрытие продавцов, сохранённые поиски, стоп-слова, лента новых объявлений по всем поискам
 // @match        https://www.avito.ru/*
 // @match        https://m.avito.ru/*
@@ -1467,7 +1467,7 @@
   // Чистим ленту от лишнего. Непросмотренные объявления НЕ трогаем (раньше обрезали всё подряд до 400 —
   // и после долгого перерыва большая часть новых пропадала). Режем только просмотренные и скрытые фильтрами.
   // номер версии кода: вкладка со старой версией, увидев более новую, перестаёт проверять в фоне
-  const CODE_VER = 64;
+  const CODE_VER = 65;
   if (+GM_getValue('codeVer', 0) < CODE_VER) GM_setValue('codeVer', CODE_VER);
   const PENDING_MAX = 5000; // аварийный потолок для непросмотренных
   function trimFeed(feed) {
@@ -2051,14 +2051,13 @@
         }
       };
       const fastB = mbtn('⚡ Загрузить описания сейчас'); fastB.onclick = () => { close(); descFastUi(); };
-      const plan = mbtn('🔧 Перестроить поиски (5.8)'); plan.onclick = () => { close(); runPlan58(); };
       const devP = mbtn('💾 Страницы для разработчика'); devP.onclick = () => { close(); exportPagesUi(); };
       const devS = mbtn('🗂 Подразделы Авито'); devS.onclick = () => { close(); exportSubcatsUi(); };
       const rep = mbtn('📊 Файл для анализа пали'); rep.onclick = () => { close(); exportPalReportUi(); };
       const ok = mbtn('Готово', true); ok.onclick = close;
       const keys = el('div', null, 'Клавиши в ленте (ПК): J / K — следующее / предыдущее, O или Enter — открыть, X — скрыть, F — отложить.');
       keys.style.cssText = 'color:#555;font-size:12px;margin-top:6px';
-      box.append(keys, test, probe, fastB, rep, plan, devP, devS, ok);
+      box.append(keys, test, probe, fastB, rep, devP, devS, ok);
     });
   }
 
@@ -3403,23 +3402,39 @@
     toastMsg(`⭐ Убраны бренды ${PLAN58.remove.slice(0, 3).join(', ')}… из поисков: ${n}.`);
   }
   setTimeout(enforceRemoved, 3000);
-  // Levi's — только джинсы (пользователь, 20.10): подраздел «Мужские джинсы» (параметр 176 = 752, ссылка от пользователя)
-  // + код бренда из каталога + размеры XS–M. Аксессуары, сумки и другую одежду Levi's не ищем.
-  const P_SUBCAT = 176, JEANS = 752, JEANS_PATH = '/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/dzhinsy-ASgBAgICAkTeAtgL4ALgCw';
-  const LEVIS_JEANS = { name: "👕 Levi's — джинсы", id: 1689692 };
-  const levisUrl = () => `https://www.avito.ru${JEANS_PATH}?d=1&f=${avfEncode({ singles: [[P_CAT, 748], [P_SUBCAT, JEANS]],
-    multi: [[P_SIZE, STD.sizes], [P_BRAND, [LEVIS_JEANS.id]]], json: [P_PRICE, STD.price] })}&s=104`;
-  function addLevis62() {
-    if (GM_getValue('plan62', '') || mergeRunning || feedRunning) return;
-    const list = load(), url = levisUrl();
-    if (!list.some((s) => fingerprint(s.url) === fingerprint(url))) {
-      list.push({ id: Date.now(), name: LEVIS_JEANS.name, url, ban: [], seen: [], lastVisit: 0 });
-      save(list);
-      toastMsg("⭐ Добавлен поиск «Levi's — джинсы» (только раздел «Мужские джинсы»).");
+  // Джинсы и брюки (пользователь, 20.10): подразделы «Мужские джинсы» (176 = 752, ссылка от пользователя) и «Брюки»
+  // (176 = 750, из файла подразделов) + коды брендов из каталога + размеры XS–M. Подраздел у Авито один на поиск,
+  // поэтому джинсы и брюки — отдельные поиски. Аксессуары, сумки и другую одежду этих брендов не ищем
+  // (перестройка аксессуаров пропускает поиски с параметром 176). Momotaro в каталоге нет — ищем текстом.
+  const P_SUBCAT = 176, JEANS = 752;
+  const SUBS = [
+    { id: 752, label: 'Джинсы', word: 'джинсы', path: '/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/dzhinsy-ASgBAgICAkTeAtgL4ALgCw' },
+    { id: 750, label: 'Брюки', word: 'брюки', path: '/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/bryuki-ASgBAgICAkTeAtgL4ALcCw' },
+  ];
+  const DENIM65 = { names: "Levi's, Evisu, Carrera, Wrangler, Rifle, Lee", ids: [1689692, 18389243, 1689388, 1690109, 17463903, 1689689], text: [{ name: 'Momotaro', q: 'momotaro' }] };
+  const subUrl = (sub, { ids = [], q = null }) => `https://www.avito.ru${sub.path}?d=1&f=${avfEncode({ singles: [[P_CAT, 748], [P_SUBCAT, sub.id]],
+    multi: [[P_SIZE, STD.sizes], ...(ids.length ? [[P_BRAND, ids]] : [])], json: [P_PRICE, STD.price] })}${q ? '&q=' + encodeURIComponent(q) : ''}&s=104`;
+  function addDenim65() {
+    if (GM_getValue('plan65', '') || mergeRunning || feedRunning) return;
+    const list = load(), has = (url) => list.some((x) => fingerprint(x.url) === fingerprint(url));
+    const want = [];
+    for (const sub of SUBS) {
+      want.push({ sub, name: `👕 ${sub.label}: ${DENIM65.names}`, url: subUrl(sub, { ids: DENIM65.ids }) });
+      for (const t of DENIM65.text) want.push({ sub, name: `👕 ${t.name} — ${sub.word}`, url: subUrl(sub, { q: t.q }) });
     }
-    GM_setValue('plan62', 'done:' + Date.now());
+    // старый поиск «Levi's — джинсы» (v6.2) становится поиском джинсов всех брендов — с его отметками «просмотрено»
+    const old = list.find((x) => !/[?&]q=/.test(x.url) && ((fOf(x.url) || { singles: [] }).singles.some(([k, v]) => k === P_SUBCAT && v === JEANS)));
+    let n = 0;
+    for (const w of want) {
+      if (has(w.url)) continue;
+      if (old && w.sub.id === JEANS && !w.url.includes('q=')) { Object.assign(old, { name: w.name, url: w.url, warn: '' }); n++; continue; }
+      list.push({ id: Date.now() + n, name: w.name, url: w.url, ban: [], seen: [], lastVisit: 0 }); n++;
+    }
+    if (n) { save(list); toastMsg(`⭐ Джинсы и брюки: Levi's, Evisu, Carrera, Wrangler, Rifle, Lee и Momotaro — поисков ${n}.`); }
+    GM_setValue('plan62', GM_getValue('plan62', '') || 'done:65');
+    GM_setValue('plan65', 'done:' + Date.now());
   }
-  setTimeout(addLevis62, 4000);
+  setTimeout(addDenim65, 4000);
   // v6.4. Один бренд Авито пишет в адрес страницы (…/kenzo-…, как makeBrandUrl). Бренд одиночным параметром в f
   // без такого адреса Авито открывает пустой оболочкой без объявлений: в файле страниц 20.10 «Levi's — джинсы» —
   // 360 КБ, ни одного объявления. Так же были записаны поиски, где после убирания брендов остался один
