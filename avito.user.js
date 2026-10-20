@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Avito — скрыть продавцов + мои поиски
 // @namespace    avito-seller-blocker
-// @version      6.1
+// @version      6.2
 // @description  Скрытие продавцов, сохранённые поиски, стоп-слова, лента новых объявлений по всем поискам
 // @match        https://www.avito.ru/*
 // @match        https://m.avito.ru/*
@@ -1454,7 +1454,7 @@
   // Чистим ленту от лишнего. Непросмотренные объявления НЕ трогаем (раньше обрезали всё подряд до 400 —
   // и после долгого перерыва большая часть новых пропадала). Режем только просмотренные и скрытые фильтрами.
   // номер версии кода: вкладка со старой версией, увидев более новую, перестаёт проверять в фоне
-  const CODE_VER = 61;
+  const CODE_VER = 62;
   if (+GM_getValue('codeVer', 0) < CODE_VER) GM_setValue('codeVer', CODE_VER);
   const PENDING_MAX = 5000; // аварийный потолок для непросмотренных
   function trimFeed(feed) {
@@ -3140,7 +3140,7 @@
     const accNames = new Set(list.filter((x) => kindKeyOf(x) === 'aksessuary').flatMap((x) => searchBrandNames(x.name)).map(key2));
     const groups = [];
     for (const s of list) {
-      if (kindKeyOf(s) !== 'odezhda') continue;
+      if (kindKeyOf(s) !== 'odezhda' || (fOf(s.url) || { singles: [] }).singles.some(([k]) => k === 176)) continue; // поиск подраздела (Levi's — только джинсы)
       const ids = brandIdsOf(s.url).filter((id) => !accIds.has(id));
       if (!ids.length) continue;
       const names = searchBrandNames(s.name).filter((n) => !accNames.has(key2(n)));
@@ -3261,6 +3261,23 @@
     toastMsg(`⭐ Убраны бренды ${PLAN58.remove.slice(0, 3).join(', ')}… из поисков: ${n}.`);
   }
   setTimeout(enforceRemoved, 3000);
+  // Levi's — только джинсы (пользователь, 20.10): подраздел «Мужские джинсы» (параметр 176 = 752, ссылка от пользователя)
+  // + код бренда из каталога + размеры XS–M. Аксессуары, сумки и другую одежду Levi's не ищем.
+  const P_SUBCAT = 176, JEANS = 752, JEANS_PATH = '/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/dzhinsy-ASgBAgICAkTeAtgL4ALgCw';
+  const LEVIS_JEANS = { name: "👕 Levi's — джинсы", id: 1689692 };
+  const levisUrl = () => `https://www.avito.ru${JEANS_PATH}?d=1&f=${avfEncode({ singles: [[P_CAT, 748], [P_SUBCAT, JEANS], [P_BRAND, LEVIS_JEANS.id]],
+    multi: [[P_SIZE, STD.sizes]], json: [P_PRICE, STD.price] })}&s=104`;
+  function addLevis62() {
+    if (GM_getValue('plan62', '') || mergeRunning || feedRunning) return;
+    const list = load(), url = levisUrl();
+    if (!list.some((s) => fingerprint(s.url) === fingerprint(url))) {
+      list.push({ id: Date.now(), name: LEVIS_JEANS.name, url, ban: [], seen: [], lastVisit: 0 });
+      save(list);
+      toastMsg("⭐ Добавлен поиск «Levi's — джинсы» (только раздел «Мужские джинсы»).");
+    }
+    GM_setValue('plan62', 'done:' + Date.now());
+  }
+  setTimeout(addLevis62, 4000);
   setTimeout(fixDenim59, 5000);
   // На m.avito.ru проверка фильтров в 5.8–5.9 не проходила никогда (страница не пишет, как Авито понял фильтры),
   // поэтому на телефоне перестройка убрала бренды, но ничего не добавила. Догружаем недостающее — один раз.
