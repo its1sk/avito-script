@@ -1,0 +1,1113 @@
+{
+ "_": "Подразделы Авито из файла пользователя 20.10 (www, «🗂 Подразделы Авито»). {раздел: {title, path, params: {параметр: {название: {value, path}}}}}. Бренды (115634) — в avito-brands.json. Состояние 110385 одинаково во всех разделах.",
+ "odezhda": {
+  "title": "Мужская одежда",
+  "path": "/all/odezhda_obuv_aksessuary/muzhskaya_odezhda-ASgBAgICAUTeAtgL",
+  "params": {
+   "176": {
+    "Lyle Scott": {
+     "value": 751,
+     "path": "/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/verhnyaya_odezhda-ASgBAgICAkTeAtgL4ALeCw"
+    },
+    "Кофты и футболки": {
+     "value": 756,
+     "path": "/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/kofty_i_futbolki-ASgBAgICAkTeAtgL4ALoCw"
+    },
+    "Пиджаки и костюмы": {
+     "value": 754,
+     "path": "/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/pidzhaki_i_kostyumy-ASgBAgICAkTeAtgL4ALkCw"
+    },
+    "Джинсы": {
+     "value": 752,
+     "path": "/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/dzhinsy-ASgBAgICAkTeAtgL4ALgCw"
+    },
+    "Брюки": {
+     "value": 750,
+     "path": "/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/bryuki-ASgBAgICAkTeAtgL4ALcCw"
+    },
+    "Рубашки": {
+     "value": 942,
+     "path": "/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/rubashki-ASgBAgICAkTeAtgL4ALcDg"
+    },
+    "Спортивные костюмы": {
+     "value": 3258721,
+     "path": "/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/sportivnye_kostiumy-ASgBAgICAkTeAtgL4ALC5Y0D"
+    },
+    "Шорты": {
+     "value": 3258722,
+     "path": "/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/sorty-ASgBAgICAkTeAtgL4ALE5Y0D"
+    },
+    "Нижнее бельё": {
+     "value": 3258723,
+     "path": "/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/nizhnee_belyo-ASgBAgICAkTeAtgL4ALG5Y0D"
+    },
+    "Другое": {
+     "value": 757,
+     "path": "/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/drugoe-ASgBAgICAkTeAtgL4ALqCw"
+    }
+   },
+   "118570": {
+    "Туфли": {
+     "value": 2262787,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/tufli-ASgBAgICAkTeAryp1gLUvA6GnJQC"
+    },
+    "Сапоги": {
+     "value": 2262788,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/sapogi-ASgBAgICAkTeAryp1gLUvA6InJQC"
+    },
+    "Босоножки": {
+     "value": 2262789,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/bosonozhki-ASgBAgICAkTeAryp1gLUvA6KnJQC"
+    },
+    "Ботильоны": {
+     "value": 2262790,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/botilony-ASgBAgICAkTeAryp1gLUvA6MnJQC"
+    },
+    "Ботинки и полуботинки": {
+     "value": 2262791,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/botinki_i_polubotinki-ASgBAgICAkTeAryp1gLUvA6OnJQC"
+    },
+    "Кроссовки и кеды": {
+     "value": 2262792,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/krossovki_i_kedy-ASgBAgICAkTeAryp1gLUvA6QnJQC"
+    },
+    "Полусапоги": {
+     "value": 2262793,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/polusapogi-ASgBAgICAkTeAryp1gLUvA6SnJQC"
+    },
+    "Балетки": {
+     "value": 2262794,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/baletki-ASgBAgICAkTeAryp1gLUvA6UnJQC"
+    },
+    "Угги, валенки, дутики": {
+     "value": 2262795,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/uggi_valenki_dutiki-ASgBAgICAkTeAryp1gLUvA6WnJQC"
+    },
+    "Сабо и мюли": {
+     "value": 2262796,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/sabo_i_myuli-ASgBAgICAkTeAryp1gLUvA6YnJQC"
+    },
+    "Резиновая обувь": {
+     "value": 2262797,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/rezinovaya_obuv-ASgBAgICAkTeAryp1gLUvA6anJQC"
+    },
+    "Мокасины и лоферы": {
+     "value": 2262798,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/mokasiny_i_lofery-ASgBAgICAkTeAryp1gLUvA6cnJQC"
+    },
+    "Сандалии": {
+     "value": 2262799,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/sandalii-ASgBAgICAkTeAryp1gLUvA6enJQC"
+    },
+    "Шлёпанцы и сланцы": {
+     "value": 2262800,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/shlyopancy_i_slancy-ASgBAgICAkTeAryp1gLUvA6gnJQC"
+    },
+    "Домашняя обувь": {
+     "value": 2262801,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/domashnyaya_obuv-ASgBAgICAkTeAryp1gLUvA6inJQC"
+    },
+    "Спортивная обувь": {
+     "value": 2262802,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/sportivnaya_obuv-ASgBAgICAkTeAryp1gLUvA6knJQC"
+    },
+    "Слипоны и эспадрильи": {
+     "value": 2262803,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/slipony_i_espadrili-ASgBAgICAkTeAryp1gLUvA6mnJQC"
+    },
+    "Уход за обувью": {
+     "value": 2262804,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/ukhod_za_obuvyu-ASgBAgICAkTeAryp1gLUvA6onJQC"
+    }
+   },
+   "118631": {
+    "Кроссовки": {
+     "value": 2262814,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/krossovki-ASgBAgICAkTeArqp1gLOvQ68nJQC"
+    },
+    "Ботинки и полуботинки": {
+     "value": 2262815,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/botinki_i_polubotinki-ASgBAgICAkTeArqp1gLOvQ6~nJQC"
+    },
+    "Туфли": {
+     "value": 2262816,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/tufli-ASgBAgICAkTeArqp1gLOvQ7AnJQC"
+    },
+    "Кеды": {
+     "value": 2262817,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/kedy-ASgBAgICAkTeArqp1gLOvQ7CnJQC"
+    },
+    "Сапоги и полусапоги": {
+     "value": 2262818,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/sapogi_i_polusapogi-ASgBAgICAkTeArqp1gLOvQ7EnJQC"
+    },
+    "Мокасины и лоферы": {
+     "value": 2262819,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/mokasiny_i_lofery-ASgBAgICAkTeArqp1gLOvQ7GnJQC"
+    },
+    "Спортивная обувь": {
+     "value": 2262820,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/sportivnaya_obuv-ASgBAgICAkTeArqp1gLOvQ7InJQC"
+    },
+    "Угги, валенки, дутики": {
+     "value": 2262821,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/uggi_valenki_dutiki-ASgBAgICAkTeArqp1gLOvQ7KnJQC"
+    },
+    "Рабочая обувь": {
+     "value": 2262822,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/rabochaya_obuv-ASgBAgICAkTeArqp1gLOvQ7MnJQC"
+    },
+    "Резиновая обувь": {
+     "value": 2262823,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/rezinovaya_obuv-ASgBAgICAkTeArqp1gLOvQ7OnJQC"
+    },
+    "Сандалии": {
+     "value": 2262824,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/sandalii-ASgBAgICAkTeArqp1gLOvQ7QnJQC"
+    },
+    "Шлёпанцы и сланцы": {
+     "value": 2262825,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/shlyopancy_i_slancy-ASgBAgICAkTeArqp1gLOvQ7SnJQC"
+    },
+    "Домашняя обувь": {
+     "value": 2262826,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/domashnyaya_obuv-ASgBAgICAkTeArqp1gLOvQ7UnJQC"
+    },
+    "Слипоны и эспадрильи": {
+     "value": 2262827,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/slipony_i_espadrili-ASgBAgICAkTeArqp1gLOvQ7WnJQC"
+    },
+    "Уход за обувью": {
+     "value": 2262828,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/ukhod_za_obuvyu-ASgBAgICAkTeArqp1gLOvQ7YnJQC"
+    }
+   },
+   "120473": {
+    "Сумки": {
+     "value": 2804331,
+     "path": "/all/odezhda_obuv_aksessuary/sumki_ryukzaki_i_chemodany/sumki-ASgBAgICAkTeArip1gKy2g7WqdYC"
+    },
+    "Рюкзаки": {
+     "value": 2804332,
+     "path": "/all/odezhda_obuv_aksessuary/sumki_ryukzaki_i_chemodany/ryukzaki-ASgBAgICAkTeArip1gKy2g7YqdYC"
+    },
+    "Чемоданы и дорожные сумки": {
+     "value": 2804333,
+     "path": "/all/odezhda_obuv_aksessuary/sumki_ryukzaki_i_chemodany/chemodany_i_dorozhnye_sumki-ASgBAgICAkTeArip1gKy2g7aqdYC"
+    },
+    "Портфели и борсетки": {
+     "value": 2804334,
+     "path": "/all/odezhda_obuv_aksessuary/sumki_ryukzaki_i_chemodany/portfeli_i_borsetki-ASgBAgICAkTeArip1gKy2g7cqdYC"
+    },
+    "Кошельки, визитницы, ключницы": {
+     "value": 2804335,
+     "path": "/all/odezhda_obuv_aksessuary/sumki_ryukzaki_i_chemodany/koshelki_vizitnicy_klyuchnicy-ASgBAgICAkTeArip1gKy2g7eqdYC"
+    },
+    "Косметички и бьюти–кейсы": {
+     "value": 2804336,
+     "path": "/all/odezhda_obuv_aksessuary/sumki_ryukzaki_i_chemodany/kosmetichki_i_byuti_keisy-ASgBAgICAkTeArip1gKy2g7gqdYC"
+    }
+   },
+   "111038": {
+    "Головные уборы": {
+     "value": 521878,
+     "path": "/all/odezhda_obuv_aksessuary/aksessuary/golovnye_ubory-ASgBAgICAkTeAtoL_MYNrNo_"
+    },
+    "Платки и шарфы": {
+     "value": 521879,
+     "path": "/all/odezhda_obuv_aksessuary/aksessuary/platki_i_sharfy-ASgBAgICAkTeAtoL_MYNrto_"
+    },
+    "Очки": {
+     "value": 521882,
+     "path": "/all/odezhda_obuv_aksessuary/aksessuary/ochki-ASgBAgICAkTeAtoL_MYNtNo_"
+    },
+    "Ремни, пояса, подтяжки": {
+     "value": 521881,
+     "path": "/all/odezhda_obuv_aksessuary/aksessuary/remni_i_poyasa-ASgBAgICAkTeAtoL_MYNsto_"
+    },
+    "Перчатки и варежки": {
+     "value": 521880,
+     "path": "/all/odezhda_obuv_aksessuary/aksessuary/perchatki_i_varezhki-ASgBAgICAkTeAtoL_MYNsNo_"
+    },
+    "Украшения": {
+     "value": 521886,
+     "path": "/all/odezhda_obuv_aksessuary/aksessuary/ukrasheniya-ASgBAgICAkTeAtoL_MYNvNo_"
+    },
+    "Зонты": {
+     "value": 521885,
+     "path": "/all/odezhda_obuv_aksessuary/aksessuary/zonty-ASgBAgICAkTeAtoL_MYNuto_"
+    },
+    "Аксессуары для волос": {
+     "value": 521883,
+     "path": "/all/odezhda_obuv_aksessuary/aksessuary/aksessuary_dlya_volos-ASgBAgICAkTeAtoL_MYNtto_"
+    },
+    "Галстуки и бабочки": {
+     "value": 521884,
+     "path": "/all/odezhda_obuv_aksessuary/aksessuary/galstuki_i_zaponki-ASgBAgICAkTeAtoL_MYNuNo_"
+    },
+    "Носки, чулки, колготки": {
+     "value": 1695045,
+     "path": "/all/odezhda_obuv_aksessuary/aksessuary/noski_chulki_kolgotki-ASgBAgICAkTeAtoL_MYNivXOAQ"
+    },
+    "Швейная фурнитура": {
+     "value": 3295379,
+     "path": "/all/odezhda_obuv_aksessuary/aksessuary/shveinaya_furnitura-ASgBAgICAkTeAtoL_MYNpqKSAw"
+    },
+    "Другое": {
+     "value": 521888,
+     "path": "/all/odezhda_obuv_aksessuary/aksessuary/drugoe-ASgBAgICAkTeAtoL_MYNwNo_"
+    }
+   },
+   "112674": {
+    "Белый": {
+     "value": 754146,
+     "path": "/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/belyi-ASgBAgICAkTeAtgLxOANxIdc"
+    },
+    "Серебряный": {
+     "value": 754152,
+     "path": "/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/serebristyi-ASgBAgICAkTeAtgLxOAN0Idc"
+    },
+    "Голубой": {
+     "value": 754158,
+     "path": "/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/goluboi-ASgBAgICAkTeAtgLxOAN3Idc"
+    },
+    "Коричневый": {
+     "value": 754153,
+     "path": "/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/korichnevyi-ASgBAgICAkTeAtgLxOAN0odc"
+    }
+   },
+   "115539": {
+    "74 (8XL)": {
+     "value": 1364267,
+     "path": "/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/74_8xl-ASgBAgICAkTeAtgLpo0O1sSmAQ"
+    },
+    "68 (7XL)": {
+     "value": 1364264,
+     "path": "/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/68_7xl-ASgBAgICAkTeAtgLpo0O0MSmAQ"
+    }
+   }
+  }
+ },
+ "obuv": {
+  "title": "Мужская обувь",
+  "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya-ASgBAgICAUTeArqp1gI",
+  "params": {
+   "118631": {
+    "Кроссовки": {
+     "value": 2262814,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/krossovki-ASgBAgICAkTeArqp1gLOvQ68nJQC"
+    },
+    "Ботинки и полуботинки": {
+     "value": 2262815,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/botinki_i_polubotinki-ASgBAgICAkTeArqp1gLOvQ6~nJQC"
+    },
+    "Туфли": {
+     "value": 2262816,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/tufli-ASgBAgICAkTeArqp1gLOvQ7AnJQC"
+    },
+    "Кеды": {
+     "value": 2262817,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/kedy-ASgBAgICAkTeArqp1gLOvQ7CnJQC"
+    },
+    "Сапоги и полусапоги": {
+     "value": 2262818,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/sapogi_i_polusapogi-ASgBAgICAkTeArqp1gLOvQ7EnJQC"
+    },
+    "Мокасины и лоферы": {
+     "value": 2262819,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/mokasiny_i_lofery-ASgBAgICAkTeArqp1gLOvQ7GnJQC"
+    },
+    "Спортивная обувь": {
+     "value": 2262820,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/sportivnaya_obuv-ASgBAgICAkTeArqp1gLOvQ7InJQC"
+    },
+    "Угги, валенки, дутики": {
+     "value": 2262821,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/uggi_valenki_dutiki-ASgBAgICAkTeArqp1gLOvQ7KnJQC"
+    },
+    "Рабочая обувь": {
+     "value": 2262822,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/rabochaya_obuv-ASgBAgICAkTeArqp1gLOvQ7MnJQC"
+    },
+    "Резиновая обувь": {
+     "value": 2262823,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/rezinovaya_obuv-ASgBAgICAkTeArqp1gLOvQ7OnJQC"
+    },
+    "Сандалии": {
+     "value": 2262824,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/sandalii-ASgBAgICAkTeArqp1gLOvQ7QnJQC"
+    },
+    "Шлёпанцы и сланцы": {
+     "value": 2262825,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/shlyopancy_i_slancy-ASgBAgICAkTeArqp1gLOvQ7SnJQC"
+    },
+    "Домашняя обувь": {
+     "value": 2262826,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/domashnyaya_obuv-ASgBAgICAkTeArqp1gLOvQ7UnJQC"
+    },
+    "Слипоны и эспадрильи": {
+     "value": 2262827,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/slipony_i_espadrili-ASgBAgICAkTeArqp1gLOvQ7WnJQC"
+    },
+    "Уход за обувью": {
+     "value": 2262828,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/ukhod_za_obuvyu-ASgBAgICAkTeArqp1gLOvQ7YnJQC"
+    }
+   },
+   "118570": {
+    "Туфли": {
+     "value": 2262787,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/tufli-ASgBAgICAkTeAryp1gLUvA6GnJQC"
+    },
+    "Сапоги": {
+     "value": 2262788,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/sapogi-ASgBAgICAkTeAryp1gLUvA6InJQC"
+    },
+    "Босоножки": {
+     "value": 2262789,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/bosonozhki-ASgBAgICAkTeAryp1gLUvA6KnJQC"
+    },
+    "Ботильоны": {
+     "value": 2262790,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/botilony-ASgBAgICAkTeAryp1gLUvA6MnJQC"
+    },
+    "Ботинки и полуботинки": {
+     "value": 2262791,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/botinki_i_polubotinki-ASgBAgICAkTeAryp1gLUvA6OnJQC"
+    },
+    "Кроссовки и кеды": {
+     "value": 2262792,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/krossovki_i_kedy-ASgBAgICAkTeAryp1gLUvA6QnJQC"
+    },
+    "Полусапоги": {
+     "value": 2262793,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/polusapogi-ASgBAgICAkTeAryp1gLUvA6SnJQC"
+    },
+    "Балетки": {
+     "value": 2262794,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/baletki-ASgBAgICAkTeAryp1gLUvA6UnJQC"
+    },
+    "Угги, валенки, дутики": {
+     "value": 2262795,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/uggi_valenki_dutiki-ASgBAgICAkTeAryp1gLUvA6WnJQC"
+    },
+    "Сабо и мюли": {
+     "value": 2262796,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/sabo_i_myuli-ASgBAgICAkTeAryp1gLUvA6YnJQC"
+    },
+    "Резиновая обувь": {
+     "value": 2262797,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/rezinovaya_obuv-ASgBAgICAkTeAryp1gLUvA6anJQC"
+    },
+    "Мокасины и лоферы": {
+     "value": 2262798,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/mokasiny_i_lofery-ASgBAgICAkTeAryp1gLUvA6cnJQC"
+    },
+    "Сандалии": {
+     "value": 2262799,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/sandalii-ASgBAgICAkTeAryp1gLUvA6enJQC"
+    },
+    "Шлёпанцы и сланцы": {
+     "value": 2262800,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/shlyopancy_i_slancy-ASgBAgICAkTeAryp1gLUvA6gnJQC"
+    },
+    "Домашняя обувь": {
+     "value": 2262801,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/domashnyaya_obuv-ASgBAgICAkTeAryp1gLUvA6inJQC"
+    },
+    "Спортивная обувь": {
+     "value": 2262802,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/sportivnaya_obuv-ASgBAgICAkTeAryp1gLUvA6knJQC"
+    },
+    "Слипоны и эспадрильи": {
+     "value": 2262803,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/slipony_i_espadrili-ASgBAgICAkTeAryp1gLUvA6mnJQC"
+    },
+    "Уход за обувью": {
+     "value": 2262804,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/ukhod_za_obuvyu-ASgBAgICAkTeAryp1gLUvA6onJQC"
+    }
+   },
+   "176": {
+    "Lyle Scott": {
+     "value": 751,
+     "path": "/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/verhnyaya_odezhda-ASgBAgICAkTeAtgL4ALeCw"
+    },
+    "Кофты и футболки": {
+     "value": 756,
+     "path": "/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/kofty_i_futbolki-ASgBAgICAkTeAtgL4ALoCw"
+    },
+    "Пиджаки и костюмы": {
+     "value": 754,
+     "path": "/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/pidzhaki_i_kostyumy-ASgBAgICAkTeAtgL4ALkCw"
+    },
+    "Джинсы": {
+     "value": 752,
+     "path": "/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/dzhinsy-ASgBAgICAkTeAtgL4ALgCw"
+    },
+    "Брюки": {
+     "value": 750,
+     "path": "/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/bryuki-ASgBAgICAkTeAtgL4ALcCw"
+    },
+    "Рубашки": {
+     "value": 942,
+     "path": "/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/rubashki-ASgBAgICAkTeAtgL4ALcDg"
+    },
+    "Спортивные костюмы": {
+     "value": 3258721,
+     "path": "/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/sportivnye_kostiumy-ASgBAgICAkTeAtgL4ALC5Y0D"
+    },
+    "Шорты": {
+     "value": 3258722,
+     "path": "/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/sorty-ASgBAgICAkTeAtgL4ALE5Y0D"
+    },
+    "Нижнее бельё": {
+     "value": 3258723,
+     "path": "/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/nizhnee_belyo-ASgBAgICAkTeAtgL4ALG5Y0D"
+    },
+    "Другое": {
+     "value": 757,
+     "path": "/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/drugoe-ASgBAgICAkTeAtgL4ALqCw"
+    }
+   },
+   "120473": {
+    "Сумки": {
+     "value": 2804331,
+     "path": "/all/odezhda_obuv_aksessuary/sumki_ryukzaki_i_chemodany/sumki-ASgBAgICAkTeArip1gKy2g7WqdYC"
+    },
+    "Рюкзаки": {
+     "value": 2804332,
+     "path": "/all/odezhda_obuv_aksessuary/sumki_ryukzaki_i_chemodany/ryukzaki-ASgBAgICAkTeArip1gKy2g7YqdYC"
+    },
+    "Чемоданы и дорожные сумки": {
+     "value": 2804333,
+     "path": "/all/odezhda_obuv_aksessuary/sumki_ryukzaki_i_chemodany/chemodany_i_dorozhnye_sumki-ASgBAgICAkTeArip1gKy2g7aqdYC"
+    },
+    "Портфели и борсетки": {
+     "value": 2804334,
+     "path": "/all/odezhda_obuv_aksessuary/sumki_ryukzaki_i_chemodany/portfeli_i_borsetki-ASgBAgICAkTeArip1gKy2g7cqdYC"
+    },
+    "Кошельки, визитницы, ключницы": {
+     "value": 2804335,
+     "path": "/all/odezhda_obuv_aksessuary/sumki_ryukzaki_i_chemodany/koshelki_vizitnicy_klyuchnicy-ASgBAgICAkTeArip1gKy2g7eqdYC"
+    },
+    "Косметички и бьюти–кейсы": {
+     "value": 2804336,
+     "path": "/all/odezhda_obuv_aksessuary/sumki_ryukzaki_i_chemodany/kosmetichki_i_byuti_keisy-ASgBAgICAkTeArip1gKy2g7gqdYC"
+    }
+   },
+   "111038": {
+    "Головные уборы": {
+     "value": 521878,
+     "path": "/all/odezhda_obuv_aksessuary/aksessuary/golovnye_ubory-ASgBAgICAkTeAtoL_MYNrNo_"
+    },
+    "Платки и шарфы": {
+     "value": 521879,
+     "path": "/all/odezhda_obuv_aksessuary/aksessuary/platki_i_sharfy-ASgBAgICAkTeAtoL_MYNrto_"
+    },
+    "Очки": {
+     "value": 521882,
+     "path": "/all/odezhda_obuv_aksessuary/aksessuary/ochki-ASgBAgICAkTeAtoL_MYNtNo_"
+    },
+    "Ремни, пояса, подтяжки": {
+     "value": 521881,
+     "path": "/all/odezhda_obuv_aksessuary/aksessuary/remni_i_poyasa-ASgBAgICAkTeAtoL_MYNsto_"
+    },
+    "Перчатки и варежки": {
+     "value": 521880,
+     "path": "/all/odezhda_obuv_aksessuary/aksessuary/perchatki_i_varezhki-ASgBAgICAkTeAtoL_MYNsNo_"
+    },
+    "Украшения": {
+     "value": 521886,
+     "path": "/all/odezhda_obuv_aksessuary/aksessuary/ukrasheniya-ASgBAgICAkTeAtoL_MYNvNo_"
+    },
+    "Зонты": {
+     "value": 521885,
+     "path": "/all/odezhda_obuv_aksessuary/aksessuary/zonty-ASgBAgICAkTeAtoL_MYNuto_"
+    },
+    "Аксессуары для волос": {
+     "value": 521883,
+     "path": "/all/odezhda_obuv_aksessuary/aksessuary/aksessuary_dlya_volos-ASgBAgICAkTeAtoL_MYNtto_"
+    },
+    "Галстуки и бабочки": {
+     "value": 521884,
+     "path": "/all/odezhda_obuv_aksessuary/aksessuary/galstuki_i_zaponki-ASgBAgICAkTeAtoL_MYNuNo_"
+    },
+    "Носки, чулки, колготки": {
+     "value": 1695045,
+     "path": "/all/odezhda_obuv_aksessuary/aksessuary/noski_chulki_kolgotki-ASgBAgICAkTeAtoL_MYNivXOAQ"
+    },
+    "Швейная фурнитура": {
+     "value": 3295379,
+     "path": "/all/odezhda_obuv_aksessuary/aksessuary/shveinaya_furnitura-ASgBAgICAkTeAtoL_MYNpqKSAw"
+    },
+    "Другое": {
+     "value": 521888,
+     "path": "/all/odezhda_obuv_aksessuary/aksessuary/drugoe-ASgBAgICAkTeAtoL_MYNwNo_"
+    }
+   },
+   "112674": {
+    "Золотой": {
+     "value": 754155,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/zolotistyi-ASgBAgICAkTeArqp1gLE4A3Wh1w"
+    }
+   },
+   "115164": {
+    "45": {
+     "value": 1211569,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/45-ASgBAgICAkTeArqp1gK4hw7i8pMB"
+    },
+    "48+": {
+     "value": 1211575,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/48_i_bolshe-ASgBAgICAkTeArqp1gK4hw7u8pMB"
+    },
+    "36,5": {
+     "value": 1211552,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/36_5-ASgBAgICAkTeArqp1gK4hw7A8pMB"
+    },
+    "36": {
+     "value": 1211551,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/36-ASgBAgICAkTeArqp1gK4hw6~8pMB"
+    },
+    "44": {
+     "value": 1211567,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/44-ASgBAgICAkTeArqp1gK4hw7e8pMB"
+    },
+    "45,5": {
+     "value": 1211570,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/45_5-ASgBAgICAkTeArqp1gK4hw7k8pMB"
+    }
+   }
+  }
+ },
+ "aksessuary": {
+  "title": "Аксессуары",
+  "path": "/all/odezhda_obuv_aksessuary/kupit-aksessuary-ASgBAgICAUTeAtoL",
+  "params": {
+   "111038": {
+    "Головные уборы": {
+     "value": 521878,
+     "path": "/all/odezhda_obuv_aksessuary/aksessuary/golovnye_ubory-ASgBAgICAkTeAtoL_MYNrNo_"
+    },
+    "Платки и шарфы": {
+     "value": 521879,
+     "path": "/all/odezhda_obuv_aksessuary/aksessuary/platki_i_sharfy-ASgBAgICAkTeAtoL_MYNrto_"
+    },
+    "Очки": {
+     "value": 521882,
+     "path": "/all/odezhda_obuv_aksessuary/aksessuary/ochki-ASgBAgICAkTeAtoL_MYNtNo_"
+    },
+    "Ремни, пояса, подтяжки": {
+     "value": 521881,
+     "path": "/all/odezhda_obuv_aksessuary/aksessuary/remni_i_poyasa-ASgBAgICAkTeAtoL_MYNsto_"
+    },
+    "Перчатки и варежки": {
+     "value": 521880,
+     "path": "/all/odezhda_obuv_aksessuary/aksessuary/perchatki_i_varezhki-ASgBAgICAkTeAtoL_MYNsNo_"
+    },
+    "Украшения": {
+     "value": 521886,
+     "path": "/all/odezhda_obuv_aksessuary/aksessuary/ukrasheniya-ASgBAgICAkTeAtoL_MYNvNo_"
+    },
+    "Зонты": {
+     "value": 521885,
+     "path": "/all/odezhda_obuv_aksessuary/aksessuary/zonty-ASgBAgICAkTeAtoL_MYNuto_"
+    },
+    "Аксессуары для волос": {
+     "value": 521883,
+     "path": "/all/odezhda_obuv_aksessuary/aksessuary/aksessuary_dlya_volos-ASgBAgICAkTeAtoL_MYNtto_"
+    },
+    "Галстуки и бабочки": {
+     "value": 521884,
+     "path": "/all/odezhda_obuv_aksessuary/aksessuary/galstuki_i_zaponki-ASgBAgICAkTeAtoL_MYNuNo_"
+    },
+    "Носки, чулки, колготки": {
+     "value": 1695045,
+     "path": "/all/odezhda_obuv_aksessuary/aksessuary/noski_chulki_kolgotki-ASgBAgICAkTeAtoL_MYNivXOAQ"
+    },
+    "Швейная фурнитура": {
+     "value": 3295379,
+     "path": "/all/odezhda_obuv_aksessuary/aksessuary/shveinaya_furnitura-ASgBAgICAkTeAtoL_MYNpqKSAw"
+    },
+    "Другое": {
+     "value": 521888,
+     "path": "/all/odezhda_obuv_aksessuary/aksessuary/drugoe-ASgBAgICAkTeAtoL_MYNwNo_"
+    }
+   },
+   "118570": {
+    "Туфли": {
+     "value": 2262787,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/tufli-ASgBAgICAkTeAryp1gLUvA6GnJQC"
+    },
+    "Сапоги": {
+     "value": 2262788,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/sapogi-ASgBAgICAkTeAryp1gLUvA6InJQC"
+    },
+    "Босоножки": {
+     "value": 2262789,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/bosonozhki-ASgBAgICAkTeAryp1gLUvA6KnJQC"
+    },
+    "Ботильоны": {
+     "value": 2262790,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/botilony-ASgBAgICAkTeAryp1gLUvA6MnJQC"
+    },
+    "Ботинки и полуботинки": {
+     "value": 2262791,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/botinki_i_polubotinki-ASgBAgICAkTeAryp1gLUvA6OnJQC"
+    },
+    "Кроссовки и кеды": {
+     "value": 2262792,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/krossovki_i_kedy-ASgBAgICAkTeAryp1gLUvA6QnJQC"
+    },
+    "Полусапоги": {
+     "value": 2262793,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/polusapogi-ASgBAgICAkTeAryp1gLUvA6SnJQC"
+    },
+    "Балетки": {
+     "value": 2262794,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/baletki-ASgBAgICAkTeAryp1gLUvA6UnJQC"
+    },
+    "Угги, валенки, дутики": {
+     "value": 2262795,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/uggi_valenki_dutiki-ASgBAgICAkTeAryp1gLUvA6WnJQC"
+    },
+    "Сабо и мюли": {
+     "value": 2262796,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/sabo_i_myuli-ASgBAgICAkTeAryp1gLUvA6YnJQC"
+    },
+    "Резиновая обувь": {
+     "value": 2262797,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/rezinovaya_obuv-ASgBAgICAkTeAryp1gLUvA6anJQC"
+    },
+    "Мокасины и лоферы": {
+     "value": 2262798,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/mokasiny_i_lofery-ASgBAgICAkTeAryp1gLUvA6cnJQC"
+    },
+    "Сандалии": {
+     "value": 2262799,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/sandalii-ASgBAgICAkTeAryp1gLUvA6enJQC"
+    },
+    "Шлёпанцы и сланцы": {
+     "value": 2262800,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/shlyopancy_i_slancy-ASgBAgICAkTeAryp1gLUvA6gnJQC"
+    },
+    "Домашняя обувь": {
+     "value": 2262801,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/domashnyaya_obuv-ASgBAgICAkTeAryp1gLUvA6inJQC"
+    },
+    "Спортивная обувь": {
+     "value": 2262802,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/sportivnaya_obuv-ASgBAgICAkTeAryp1gLUvA6knJQC"
+    },
+    "Слипоны и эспадрильи": {
+     "value": 2262803,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/slipony_i_espadrili-ASgBAgICAkTeAryp1gLUvA6mnJQC"
+    },
+    "Уход за обувью": {
+     "value": 2262804,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/ukhod_za_obuvyu-ASgBAgICAkTeAryp1gLUvA6onJQC"
+    }
+   },
+   "176": {
+    "Lyle Scott": {
+     "value": 751,
+     "path": "/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/verhnyaya_odezhda-ASgBAgICAkTeAtgL4ALeCw"
+    },
+    "Кофты и футболки": {
+     "value": 756,
+     "path": "/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/kofty_i_futbolki-ASgBAgICAkTeAtgL4ALoCw"
+    },
+    "Пиджаки и костюмы": {
+     "value": 754,
+     "path": "/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/pidzhaki_i_kostyumy-ASgBAgICAkTeAtgL4ALkCw"
+    },
+    "Джинсы": {
+     "value": 752,
+     "path": "/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/dzhinsy-ASgBAgICAkTeAtgL4ALgCw"
+    },
+    "Брюки": {
+     "value": 750,
+     "path": "/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/bryuki-ASgBAgICAkTeAtgL4ALcCw"
+    },
+    "Рубашки": {
+     "value": 942,
+     "path": "/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/rubashki-ASgBAgICAkTeAtgL4ALcDg"
+    },
+    "Спортивные костюмы": {
+     "value": 3258721,
+     "path": "/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/sportivnye_kostiumy-ASgBAgICAkTeAtgL4ALC5Y0D"
+    },
+    "Шорты": {
+     "value": 3258722,
+     "path": "/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/sorty-ASgBAgICAkTeAtgL4ALE5Y0D"
+    },
+    "Нижнее бельё": {
+     "value": 3258723,
+     "path": "/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/nizhnee_belyo-ASgBAgICAkTeAtgL4ALG5Y0D"
+    },
+    "Другое": {
+     "value": 757,
+     "path": "/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/drugoe-ASgBAgICAkTeAtgL4ALqCw"
+    }
+   },
+   "118631": {
+    "Кроссовки": {
+     "value": 2262814,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/krossovki-ASgBAgICAkTeArqp1gLOvQ68nJQC"
+    },
+    "Ботинки и полуботинки": {
+     "value": 2262815,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/botinki_i_polubotinki-ASgBAgICAkTeArqp1gLOvQ6~nJQC"
+    },
+    "Туфли": {
+     "value": 2262816,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/tufli-ASgBAgICAkTeArqp1gLOvQ7AnJQC"
+    },
+    "Кеды": {
+     "value": 2262817,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/kedy-ASgBAgICAkTeArqp1gLOvQ7CnJQC"
+    },
+    "Сапоги и полусапоги": {
+     "value": 2262818,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/sapogi_i_polusapogi-ASgBAgICAkTeArqp1gLOvQ7EnJQC"
+    },
+    "Мокасины и лоферы": {
+     "value": 2262819,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/mokasiny_i_lofery-ASgBAgICAkTeArqp1gLOvQ7GnJQC"
+    },
+    "Спортивная обувь": {
+     "value": 2262820,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/sportivnaya_obuv-ASgBAgICAkTeArqp1gLOvQ7InJQC"
+    },
+    "Угги, валенки, дутики": {
+     "value": 2262821,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/uggi_valenki_dutiki-ASgBAgICAkTeArqp1gLOvQ7KnJQC"
+    },
+    "Рабочая обувь": {
+     "value": 2262822,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/rabochaya_obuv-ASgBAgICAkTeArqp1gLOvQ7MnJQC"
+    },
+    "Резиновая обувь": {
+     "value": 2262823,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/rezinovaya_obuv-ASgBAgICAkTeArqp1gLOvQ7OnJQC"
+    },
+    "Сандалии": {
+     "value": 2262824,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/sandalii-ASgBAgICAkTeArqp1gLOvQ7QnJQC"
+    },
+    "Шлёпанцы и сланцы": {
+     "value": 2262825,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/shlyopancy_i_slancy-ASgBAgICAkTeArqp1gLOvQ7SnJQC"
+    },
+    "Домашняя обувь": {
+     "value": 2262826,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/domashnyaya_obuv-ASgBAgICAkTeArqp1gLOvQ7UnJQC"
+    },
+    "Слипоны и эспадрильи": {
+     "value": 2262827,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/slipony_i_espadrili-ASgBAgICAkTeArqp1gLOvQ7WnJQC"
+    },
+    "Уход за обувью": {
+     "value": 2262828,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/ukhod_za_obuvyu-ASgBAgICAkTeArqp1gLOvQ7YnJQC"
+    }
+   },
+   "120473": {
+    "Сумки": {
+     "value": 2804331,
+     "path": "/all/odezhda_obuv_aksessuary/sumki_ryukzaki_i_chemodany/sumki-ASgBAgICAkTeArip1gKy2g7WqdYC"
+    },
+    "Рюкзаки": {
+     "value": 2804332,
+     "path": "/all/odezhda_obuv_aksessuary/sumki_ryukzaki_i_chemodany/ryukzaki-ASgBAgICAkTeArip1gKy2g7YqdYC"
+    },
+    "Чемоданы и дорожные сумки": {
+     "value": 2804333,
+     "path": "/all/odezhda_obuv_aksessuary/sumki_ryukzaki_i_chemodany/chemodany_i_dorozhnye_sumki-ASgBAgICAkTeArip1gKy2g7aqdYC"
+    },
+    "Портфели и борсетки": {
+     "value": 2804334,
+     "path": "/all/odezhda_obuv_aksessuary/sumki_ryukzaki_i_chemodany/portfeli_i_borsetki-ASgBAgICAkTeArip1gKy2g7cqdYC"
+    },
+    "Кошельки, визитницы, ключницы": {
+     "value": 2804335,
+     "path": "/all/odezhda_obuv_aksessuary/sumki_ryukzaki_i_chemodany/koshelki_vizitnicy_klyuchnicy-ASgBAgICAkTeArip1gKy2g7eqdYC"
+    },
+    "Косметички и бьюти–кейсы": {
+     "value": 2804336,
+     "path": "/all/odezhda_obuv_aksessuary/sumki_ryukzaki_i_chemodany/kosmetichki_i_byuti_keisy-ASgBAgICAkTeArip1gKy2g7gqdYC"
+    }
+   }
+  }
+ },
+ "sumki": {
+  "title": "Сумки, рюкзаки и чемоданы",
+  "path": "/all/odezhda_obuv_aksessuary/sumki_ryukzaki_i_chemodany-ASgBAgICAUTeArip1gI",
+  "params": {
+   "120473": {
+    "Сумки": {
+     "value": 2804331,
+     "path": "/all/odezhda_obuv_aksessuary/sumki_ryukzaki_i_chemodany/sumki-ASgBAgICAkTeArip1gKy2g7WqdYC"
+    },
+    "Рюкзаки": {
+     "value": 2804332,
+     "path": "/all/odezhda_obuv_aksessuary/sumki_ryukzaki_i_chemodany/ryukzaki-ASgBAgICAkTeArip1gKy2g7YqdYC"
+    },
+    "Чемоданы и дорожные сумки": {
+     "value": 2804333,
+     "path": "/all/odezhda_obuv_aksessuary/sumki_ryukzaki_i_chemodany/chemodany_i_dorozhnye_sumki-ASgBAgICAkTeArip1gKy2g7aqdYC"
+    },
+    "Портфели и борсетки": {
+     "value": 2804334,
+     "path": "/all/odezhda_obuv_aksessuary/sumki_ryukzaki_i_chemodany/portfeli_i_borsetki-ASgBAgICAkTeArip1gKy2g7cqdYC"
+    },
+    "Кошельки, визитницы, ключницы": {
+     "value": 2804335,
+     "path": "/all/odezhda_obuv_aksessuary/sumki_ryukzaki_i_chemodany/koshelki_vizitnicy_klyuchnicy-ASgBAgICAkTeArip1gKy2g7eqdYC"
+    },
+    "Косметички и бьюти–кейсы": {
+     "value": 2804336,
+     "path": "/all/odezhda_obuv_aksessuary/sumki_ryukzaki_i_chemodany/kosmetichki_i_byuti_keisy-ASgBAgICAkTeArip1gKy2g7gqdYC"
+    }
+   },
+   "118570": {
+    "Туфли": {
+     "value": 2262787,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/tufli-ASgBAgICAkTeAryp1gLUvA6GnJQC"
+    },
+    "Сапоги": {
+     "value": 2262788,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/sapogi-ASgBAgICAkTeAryp1gLUvA6InJQC"
+    },
+    "Босоножки": {
+     "value": 2262789,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/bosonozhki-ASgBAgICAkTeAryp1gLUvA6KnJQC"
+    },
+    "Ботильоны": {
+     "value": 2262790,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/botilony-ASgBAgICAkTeAryp1gLUvA6MnJQC"
+    },
+    "Ботинки и полуботинки": {
+     "value": 2262791,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/botinki_i_polubotinki-ASgBAgICAkTeAryp1gLUvA6OnJQC"
+    },
+    "Кроссовки и кеды": {
+     "value": 2262792,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/krossovki_i_kedy-ASgBAgICAkTeAryp1gLUvA6QnJQC"
+    },
+    "Полусапоги": {
+     "value": 2262793,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/polusapogi-ASgBAgICAkTeAryp1gLUvA6SnJQC"
+    },
+    "Балетки": {
+     "value": 2262794,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/baletki-ASgBAgICAkTeAryp1gLUvA6UnJQC"
+    },
+    "Угги, валенки, дутики": {
+     "value": 2262795,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/uggi_valenki_dutiki-ASgBAgICAkTeAryp1gLUvA6WnJQC"
+    },
+    "Сабо и мюли": {
+     "value": 2262796,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/sabo_i_myuli-ASgBAgICAkTeAryp1gLUvA6YnJQC"
+    },
+    "Резиновая обувь": {
+     "value": 2262797,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/rezinovaya_obuv-ASgBAgICAkTeAryp1gLUvA6anJQC"
+    },
+    "Мокасины и лоферы": {
+     "value": 2262798,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/mokasiny_i_lofery-ASgBAgICAkTeAryp1gLUvA6cnJQC"
+    },
+    "Сандалии": {
+     "value": 2262799,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/sandalii-ASgBAgICAkTeAryp1gLUvA6enJQC"
+    },
+    "Шлёпанцы и сланцы": {
+     "value": 2262800,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/shlyopancy_i_slancy-ASgBAgICAkTeAryp1gLUvA6gnJQC"
+    },
+    "Домашняя обувь": {
+     "value": 2262801,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/domashnyaya_obuv-ASgBAgICAkTeAryp1gLUvA6inJQC"
+    },
+    "Спортивная обувь": {
+     "value": 2262802,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/sportivnaya_obuv-ASgBAgICAkTeAryp1gLUvA6knJQC"
+    },
+    "Слипоны и эспадрильи": {
+     "value": 2262803,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/slipony_i_espadrili-ASgBAgICAkTeAryp1gLUvA6mnJQC"
+    },
+    "Уход за обувью": {
+     "value": 2262804,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_zhenskaya/ukhod_za_obuvyu-ASgBAgICAkTeAryp1gLUvA6onJQC"
+    }
+   },
+   "176": {
+    "Lyle Scott": {
+     "value": 751,
+     "path": "/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/verhnyaya_odezhda-ASgBAgICAkTeAtgL4ALeCw"
+    },
+    "Кофты и футболки": {
+     "value": 756,
+     "path": "/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/kofty_i_futbolki-ASgBAgICAkTeAtgL4ALoCw"
+    },
+    "Пиджаки и костюмы": {
+     "value": 754,
+     "path": "/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/pidzhaki_i_kostyumy-ASgBAgICAkTeAtgL4ALkCw"
+    },
+    "Джинсы": {
+     "value": 752,
+     "path": "/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/dzhinsy-ASgBAgICAkTeAtgL4ALgCw"
+    },
+    "Брюки": {
+     "value": 750,
+     "path": "/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/bryuki-ASgBAgICAkTeAtgL4ALcCw"
+    },
+    "Рубашки": {
+     "value": 942,
+     "path": "/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/rubashki-ASgBAgICAkTeAtgL4ALcDg"
+    },
+    "Спортивные костюмы": {
+     "value": 3258721,
+     "path": "/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/sportivnye_kostiumy-ASgBAgICAkTeAtgL4ALC5Y0D"
+    },
+    "Шорты": {
+     "value": 3258722,
+     "path": "/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/sorty-ASgBAgICAkTeAtgL4ALE5Y0D"
+    },
+    "Нижнее бельё": {
+     "value": 3258723,
+     "path": "/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/nizhnee_belyo-ASgBAgICAkTeAtgL4ALG5Y0D"
+    },
+    "Другое": {
+     "value": 757,
+     "path": "/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/drugoe-ASgBAgICAkTeAtgL4ALqCw"
+    }
+   },
+   "118631": {
+    "Кроссовки": {
+     "value": 2262814,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/krossovki-ASgBAgICAkTeArqp1gLOvQ68nJQC"
+    },
+    "Ботинки и полуботинки": {
+     "value": 2262815,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/botinki_i_polubotinki-ASgBAgICAkTeArqp1gLOvQ6~nJQC"
+    },
+    "Туфли": {
+     "value": 2262816,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/tufli-ASgBAgICAkTeArqp1gLOvQ7AnJQC"
+    },
+    "Кеды": {
+     "value": 2262817,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/kedy-ASgBAgICAkTeArqp1gLOvQ7CnJQC"
+    },
+    "Сапоги и полусапоги": {
+     "value": 2262818,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/sapogi_i_polusapogi-ASgBAgICAkTeArqp1gLOvQ7EnJQC"
+    },
+    "Мокасины и лоферы": {
+     "value": 2262819,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/mokasiny_i_lofery-ASgBAgICAkTeArqp1gLOvQ7GnJQC"
+    },
+    "Спортивная обувь": {
+     "value": 2262820,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/sportivnaya_obuv-ASgBAgICAkTeArqp1gLOvQ7InJQC"
+    },
+    "Угги, валенки, дутики": {
+     "value": 2262821,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/uggi_valenki_dutiki-ASgBAgICAkTeArqp1gLOvQ7KnJQC"
+    },
+    "Рабочая обувь": {
+     "value": 2262822,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/rabochaya_obuv-ASgBAgICAkTeArqp1gLOvQ7MnJQC"
+    },
+    "Резиновая обувь": {
+     "value": 2262823,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/rezinovaya_obuv-ASgBAgICAkTeArqp1gLOvQ7OnJQC"
+    },
+    "Сандалии": {
+     "value": 2262824,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/sandalii-ASgBAgICAkTeArqp1gLOvQ7QnJQC"
+    },
+    "Шлёпанцы и сланцы": {
+     "value": 2262825,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/shlyopancy_i_slancy-ASgBAgICAkTeArqp1gLOvQ7SnJQC"
+    },
+    "Домашняя обувь": {
+     "value": 2262826,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/domashnyaya_obuv-ASgBAgICAkTeArqp1gLOvQ7UnJQC"
+    },
+    "Слипоны и эспадрильи": {
+     "value": 2262827,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/slipony_i_espadrili-ASgBAgICAkTeArqp1gLOvQ7WnJQC"
+    },
+    "Уход за обувью": {
+     "value": 2262828,
+     "path": "/all/odezhda_obuv_aksessuary/obuv_muzhskaya/ukhod_za_obuvyu-ASgBAgICAkTeArqp1gLOvQ7YnJQC"
+    }
+   },
+   "111038": {
+    "Головные уборы": {
+     "value": 521878,
+     "path": "/all/odezhda_obuv_aksessuary/aksessuary/golovnye_ubory-ASgBAgICAkTeAtoL_MYNrNo_"
+    },
+    "Платки и шарфы": {
+     "value": 521879,
+     "path": "/all/odezhda_obuv_aksessuary/aksessuary/platki_i_sharfy-ASgBAgICAkTeAtoL_MYNrto_"
+    },
+    "Очки": {
+     "value": 521882,
+     "path": "/all/odezhda_obuv_aksessuary/aksessuary/ochki-ASgBAgICAkTeAtoL_MYNtNo_"
+    },
+    "Ремни, пояса, подтяжки": {
+     "value": 521881,
+     "path": "/all/odezhda_obuv_aksessuary/aksessuary/remni_i_poyasa-ASgBAgICAkTeAtoL_MYNsto_"
+    },
+    "Перчатки и варежки": {
+     "value": 521880,
+     "path": "/all/odezhda_obuv_aksessuary/aksessuary/perchatki_i_varezhki-ASgBAgICAkTeAtoL_MYNsNo_"
+    },
+    "Украшения": {
+     "value": 521886,
+     "path": "/all/odezhda_obuv_aksessuary/aksessuary/ukrasheniya-ASgBAgICAkTeAtoL_MYNvNo_"
+    },
+    "Зонты": {
+     "value": 521885,
+     "path": "/all/odezhda_obuv_aksessuary/aksessuary/zonty-ASgBAgICAkTeAtoL_MYNuto_"
+    },
+    "Аксессуары для волос": {
+     "value": 521883,
+     "path": "/all/odezhda_obuv_aksessuary/aksessuary/aksessuary_dlya_volos-ASgBAgICAkTeAtoL_MYNtto_"
+    },
+    "Галстуки и бабочки": {
+     "value": 521884,
+     "path": "/all/odezhda_obuv_aksessuary/aksessuary/galstuki_i_zaponki-ASgBAgICAkTeAtoL_MYNuNo_"
+    },
+    "Носки, чулки, колготки": {
+     "value": 1695045,
+     "path": "/all/odezhda_obuv_aksessuary/aksessuary/noski_chulki_kolgotki-ASgBAgICAkTeAtoL_MYNivXOAQ"
+    },
+    "Швейная фурнитура": {
+     "value": 3295379,
+     "path": "/all/odezhda_obuv_aksessuary/aksessuary/shveinaya_furnitura-ASgBAgICAkTeAtoL_MYNpqKSAw"
+    },
+    "Другое": {
+     "value": 521888,
+     "path": "/all/odezhda_obuv_aksessuary/aksessuary/drugoe-ASgBAgICAkTeAtoL_MYNwNo_"
+    }
+   },
+   "112674": {
+    "Зелёный": {
+     "value": 754157,
+     "path": "/all/odezhda_obuv_aksessuary/sumki_ryukzaki_i_chemodany/zelenyi-ASgBAgICAkTeArip1gLE4A3ah1w"
+    },
+    "Жёлтый": {
+     "value": 754156,
+     "path": "/all/odezhda_obuv_aksessuary/sumki_ryukzaki_i_chemodany/zheltyi-ASgBAgICAkTeArip1gLE4A3Yh1w"
+    }
+   }
+  }
+ }
+}
