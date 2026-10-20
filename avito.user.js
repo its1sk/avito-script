@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Avito — скрыть продавцов + мои поиски
 // @namespace    avito-seller-blocker
-// @version      6.2
+// @version      6.3
 // @description  Скрытие продавцов, сохранённые поиски, стоп-слова, лента новых объявлений по всем поискам
 // @match        https://www.avito.ru/*
 // @match        https://m.avito.ru/*
@@ -510,7 +510,7 @@
         if (!ta.value.trim()) { err.textContent = 'Пусто — вставьте код или выберите файл'; return; }
         try {
           const data = await decode(ta.value);
-          if (data && data.kind === 'ams-palreport') { err.textContent = 'Это файл для анализа пали — его не загружают, а присылают разработчику.'; return; }
+          if (data && ['ams-palreport', 'ams-pages', 'ams-subcats'].includes(data.kind)) { err.textContent = 'Это файл для разработчика — его не загружают, а присылают в чат.'; return; }
           close();
           if (data && data.kind === 'ams-local') {
             if (!confirm(`Заменить всё на этом устройстве копией с другого (поисков ${data.searches.length}, ` +
@@ -1454,7 +1454,7 @@
   // Чистим ленту от лишнего. Непросмотренные объявления НЕ трогаем (раньше обрезали всё подряд до 400 —
   // и после долгого перерыва большая часть новых пропадала). Режем только просмотренные и скрытые фильтрами.
   // номер версии кода: вкладка со старой версией, увидев более новую, перестаёт проверять в фоне
-  const CODE_VER = 62;
+  const CODE_VER = 63;
   if (+GM_getValue('codeVer', 0) < CODE_VER) GM_setValue('codeVer', CODE_VER);
   const PENDING_MAX = 5000; // аварийный потолок для непросмотренных
   function trimFeed(feed) {
@@ -1874,6 +1874,116 @@
         : ` · Авито попросил паузу, продолжу через ${Math.ceil(p / 60000)} мин`) : '');
   }
 
+  // ---------------- файлы для разработчика: настоящие страницы и подразделы Авито ----------------
+  // Разработчик не видит Авито (из его среды сайт недоступен) — проверяет скрипт по этим файлам.
+  // Формат как у переноса (AVITO-SYNC2: deflate-raw + base64). Только текущий сайт: с m.avito.ru www не скачать (CORS).
+  const slimHtml = (h) => String(h).replace(/<style[\s\S]*?<\/style>/gi, '<style/>').replace(/<svg[\s\S]*?<\/svg>/gi, '<svg/>')
+    .replace(/data:[a-z/+.-]+;base64,[A-Za-z0-9+/=]{200,}/g, 'data:…');
+  const devStamp = () => new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-');
+  const isBlockedPage = (res, html) => [403, 429, 439].includes(res.status) || /<title[^>]*>[^<]*(?:доступ ограничен|робот|captcha)/i.test(html);
+  async function devFetch(path) {
+    const res = await fetch(location.origin + path, { credentials: 'include' });
+    const html = await res.text();
+    return { res, html, blocked: isBlockedPage(res, html) };
+  }
+  function devModal(title, onStop) {
+    let line, btn;
+    modal(title, (box) => {
+      line = el('div', null, 'Начинаю…');
+      const hint = el('div', null, 'По одной странице раз в 1,5–2,5 с. Если Авито попросит паузу — остановлюсь и сохраню то, что успел.');
+      hint.style.cssText = 'color:#777;font-size:12px;margin-top:6px';
+      btn = mbtn('⏹ Стоп'); btn.onclick = () => { onStop(); btn.disabled = true; btn.textContent = 'Останавливаю…'; };
+      box.append(line, hint, btn);
+    });
+    return {
+      say: (t) => { line.textContent = t; },
+      done: (t) => { line.textContent = t; btn.disabled = false; btn.textContent = 'Закрыть'; btn.onclick = () => document.getElementById('ams-modal')?.remove(); },
+    };
+  }
+
+  async function exportPagesUi() {
+    if (feedRunning || mergeRunning) { alert('Сейчас идёт проверка поисков — попробуйте через минуту.'); return; }
+    const list = loadRO(), targets = [];
+    for (const [k, label] of [['odezhda', 'поиск одежды'], ['obuv', 'поиск обуви'], ['aksessuary', 'поиск аксессуаров'], ['sumki', 'поиск сумок']]) {
+      const s = list.find((x) => kindKeyOf(x) === k && !/[?&]q=/.test(x.url));
+      if (s) targets.push({ label: `${label}: ${s.name}`, url: s.url });
+    }
+    const jeans = list.find((x) => (fOf(x.url) || { singles: [] }).singles.some(([p]) => p === 176));
+    if (jeans) targets.push({ label: 'поиск подраздела: ' + jeans.name, url: jeans.url });
+    const items = Object.values(loadFeedRO()).sort((a, b) => (b.found || 0) - (a.found || 0));
+    const pickItem = (label, f) => { const it = items.find(f); if (it && !targets.some((t) => t.url === it.url)) targets.push({ label: label + ': ' + it.title, url: it.url, id: it.id, title: it.title }); };
+    pickItem('объявление, описание скачалось', (x) => (x.fullDesc || '').length > 100);
+    pickItem('объявление без описания', (x) => x.descAt && !x.fullDesc);
+    pickItem('свежее объявление', () => true);
+    targets.push({ label: 'раздел «Мужская одежда»', url: 'https://www.avito.ru' + catPath('odezhda') });
+    let stop = false;
+    const ui = devModal('💾 Страницы для разработчика', () => { stop = true; });
+    const pages = [];
+    for (const t of targets) {
+      if (stop) break;
+      ui.say(`Скачиваю ${pages.length + 1} из ${targets.length}: ${t.label}`);
+      try {
+        const u = new URL(t.url), r = await devFetch(u.pathname + u.search);
+        pages.push({ label: t.label, url: t.url, id: t.id, title: t.title, status: r.res.status, finalUrl: r.res.url, len: r.html.length, html: slimHtml(r.html) });
+        if (r.blocked) { ui.say('Авито попросил паузу — сохраняю то, что успел.'); break; }
+      } catch (e) { pages.push({ label: t.label, url: t.url, error: e.message }); }
+      await sleep(1500 + Math.random() * 1000);
+    }
+    if (!pages.length) { ui.done('Ничего не скачалось.'); return; }
+    ui.say('Сжимаю и сохраняю файл…');
+    const data = { kind: 'ams-pages', v: typeof GM_info !== 'undefined' ? GM_info.script.version : '', origin: location.origin, ua: navigator.userAgent, at: Date.now(), descState: loadDescSt(), pages };
+    downloadText(await encode(data), `avito-stranicy-${location.hostname.split('.')[0]}-${devStamp()}.txt`);
+    ui.done(`✅ Файл сохранён: страниц ${pages.length}. Пришлите его разработчику. Лучше сделать это и на ПК (www.avito.ru), и на телефоне (m.avito.ru) — страницы там разные.`);
+  }
+
+  // подразделы: обходим 4 нужных раздела и их подразделы; с каждой страницы — ссылки на подразделы (с кодами) и фильтры
+  async function exportSubcatsUi() {
+    if (feedRunning || mergeRunning) { alert('Сейчас идёт проверка поисков — попробуйте через минуту.'); return; }
+    const MAX = 90;
+    let stop = false, n = 0, blocked = false;
+    const ui = devModal('🗂 Подразделы Авито', () => { stop = true; });
+    const pages = {}, queue = [];
+    const sections = ['odezhda', 'obuv', 'aksessuary', 'sumki'].map((k) => ({ k, id: KIND[k].id, path: catPath(k) }));
+    sections.forEach((s) => queue.push({ path: s.path, section: s.k, depth: 0 }));
+    const linkRe = /\/(?:all|[a-z_]+)\/odezhda_obuv_aksessuary\/([a-z0-9_-]+)\/([a-z0-9_]+)-([A-Za-z0-9_~]{6,})/g;
+    function linksOf(html) {
+      const h = html.replace(/\\\//g, '/'), out = new Map();
+      for (const m of h.matchAll(linkRe)) {
+        const [, parent, slug, code] = m, path = `${ROOT}${parent}/${slug}-${code}`;
+        if (out.has(path)) continue;
+        let params = null; try { const p = avfParse(code); params = p.singles; } catch { continue; }
+        const a = h.slice(m.index, m.index + 600).match(/^[^"]*"[^>]*>([\s\S]{1,200}?)<\/a>/);
+        out.set(path, { path, parent, slug, params, name: a ? htmlToText(a[1]).trim().slice(0, 80) : '' });
+      }
+      return [...out.values()];
+    }
+    while (queue.length && !stop && n < MAX) {
+      const q = queue.shift();
+      if (pages[q.path]) continue;
+      n++;
+      ui.say(`Страница ${n} (в очереди ещё ${queue.length}): ${q.path.replace(ROOT, '')}`);
+      let r;
+      try { r = await devFetch(q.path + '?d=1'); } catch (e) { pages[q.path] = { error: e.message }; continue; }
+      if (r.blocked) { blocked = true; break; }
+      const defs = pageFilters(r.html).map((d) => (d.attrId === P_BRAND ? { ...d, values: `(${(d.values || []).length} брендов — см. avito-brands.json)` } : d));
+      const links = linksOf(r.html);
+      pages[q.path] = { section: q.section, depth: q.depth, status: r.res.status, title: ((r.html.match(/<title[^>]*>([^<]{0,200})/i) || [])[1] || '').trim(), defs, links };
+      const catId = KIND[q.section].id;
+      if (q.depth < 2) for (const l of links) { // глубже — только подразделы этого же раздела (категория та же, параметров больше)
+        if (pages[l.path] || queue.some((x) => x.path === l.path)) continue;
+        const cat = (l.params || []).find(([p]) => p === P_CAT);
+        if (cat && cat[1] === catId && l.params.length > q.depth + 1 && !l.params.some(([p]) => p === P_BRAND)) queue.push({ path: l.path, section: q.section, depth: q.depth + 1 });
+      }
+      await sleep(1500 + Math.random() * 1000);
+    }
+    const got = Object.keys(pages).length;
+    if (!got) { ui.done(blocked ? 'Авито попросил паузу — попробуйте позже.' : 'Ничего не скачалось.'); return; }
+    ui.say('Сжимаю и сохраняю файл…');
+    const data = { kind: 'ams-subcats', v: typeof GM_info !== 'undefined' ? GM_info.script.version : '', origin: location.origin, at: Date.now(), complete: !stop && !blocked && !queue.length, left: queue.length, pages };
+    downloadText(await encode(data), `avito-podrazdely-${location.hostname.split('.')[0]}-${devStamp()}.txt`);
+    ui.done(`${blocked ? '⏸ Авито попросил паузу — сохранил то, что успел. ' : stop ? '⏹ Остановлено. ' : '✅ '}Страниц: ${got}${queue.length ? `, не дошёл до ${queue.length}` : ''}. Пришлите файл разработчику. Лучше запускать на ПК (www.avito.ru): там страницы полнее.`);
+  }
+
   function openFeedOpts() {
     modal('⚙️ Настройки ленты', (box, close) => {
       const o = loadOpts();
@@ -1922,11 +2032,13 @@
       };
       const fastB = mbtn('⚡ Загрузить описания сейчас'); fastB.onclick = () => { close(); descFastUi(); };
       const plan = mbtn('🔧 Перестроить поиски (5.8)'); plan.onclick = () => { close(); runPlan58(); };
+      const devP = mbtn('💾 Страницы для разработчика'); devP.onclick = () => { close(); exportPagesUi(); };
+      const devS = mbtn('🗂 Подразделы Авито'); devS.onclick = () => { close(); exportSubcatsUi(); };
       const rep = mbtn('📊 Файл для анализа пали'); rep.onclick = () => { close(); exportPalReportUi(); };
       const ok = mbtn('Готово', true); ok.onclick = close;
       const keys = el('div', null, 'Клавиши в ленте (ПК): J / K — следующее / предыдущее, O или Enter — открыть, X — скрыть, F — отложить.');
       keys.style.cssText = 'color:#555;font-size:12px;margin-top:6px';
-      box.append(keys, test, probe, fastB, rep, plan, ok);
+      box.append(keys, test, probe, fastB, rep, plan, devP, devS, ok);
     });
   }
 
