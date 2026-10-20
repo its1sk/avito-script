@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Avito — скрыть продавцов + мои поиски
 // @namespace    avito-seller-blocker
-// @version      6.6
+// @version      6.7
 // @description  Скрытие продавцов, сохранённые поиски, стоп-слова, лента новых объявлений по всем поискам
 // @match        https://www.avito.ru/*
 // @match        https://m.avito.ru/*
@@ -850,7 +850,9 @@
     if (!it.params) return false;
     const words = searchBrandWords(search);
     if (!words) return false;
-    const text = ' ' + brandKey(it.title + ' ' + it.params) + ' ';
+    // в поиске по слову (Dolani, Momotaro) бренда нет в фильтре Авито — он бывает только в описании
+    const byText = search && /[?&]q=/.test(search.url || '');
+    const text = ' ' + brandKey(it.title + ' ' + it.params + (byText ? ' ' + (it.desc || '') : '')) + ' ';
     return !words.some((w) => text.includes(' ' + w + ' '));
   }
 
@@ -1467,7 +1469,7 @@
   // Чистим ленту от лишнего. Непросмотренные объявления НЕ трогаем (раньше обрезали всё подряд до 400 —
   // и после долгого перерыва большая часть новых пропадала). Режем только просмотренные и скрытые фильтрами.
   // номер версии кода: вкладка со старой версией, увидев более новую, перестаёт проверять в фоне
-  const CODE_VER = 66;
+  const CODE_VER = 67;
   if (+GM_getValue('codeVer', 0) < CODE_VER) GM_setValue('codeVer', CODE_VER);
   const PENDING_MAX = 5000; // аварийный потолок для непросмотренных
   function trimFeed(feed) {
@@ -3059,7 +3061,7 @@
           if (vals.length === 1) singles.push([p, vals[0]]); else multi.push([p, vals]);
         }
         const f = avfEncode({ singles, multi, jsons: [price, ...jsons] });
-        return `https://www.avito.ru${path || catPath(kindKey)}?d=1&f=${f}${q ? '&q=' + encodeURIComponent(q) : ''}&s=104`;
+        return `https://www.avito.ru${path || catPath(kindKey)}?d=1&f=${f}${q ? '&q=' + encodeURIComponent(q) + '&cd=1' : ''}&s=104`;
       };
       let groupMax = recipe.groupMax || 7;
       let accMode = 'group';
@@ -3252,7 +3254,7 @@
     if (kindKey === 'obuv') multi.push([P_SHOE, STD.shoes]);
     if (ids.length) multi.push([P_BRAND, ids]); // один бренд brandFix66 перепишет на адрес с брендом
     const f = avfEncode({ singles, multi, json: [P_PRICE, STD.price] });
-    return `https://www.avito.ru${catPath(kindKey)}?d=1&f=${f}${q ? '&q=' + encodeURIComponent(q) : ''}&s=104`;
+    return `https://www.avito.ru${catPath(kindKey)}?d=1&f=${f}${q ? '&q=' + encodeURIComponent(q) + '&cd=1' : ''}&s=104`;
   };
   const KIND_OF = { odezhda: 'odezhda', obuv: 'obuv', aks: 'aksessuary' };
   const kindKeyOf = (s) => { const k = searchKind(s); if (k !== 'aks') return KIND_OF[k] || ''; return /^👜/u.test(s.name) ? 'sumki' : 'aksessuary'; };
@@ -3412,16 +3414,16 @@
     { id: 752, label: 'Джинсы', word: 'джинсы', path: '/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/dzhinsy-ASgBAgICAkTeAtgL4ALgCw' },
     { id: 750, label: 'Брюки', word: 'брюки', path: '/all/odezhda_obuv_aksessuary/muzhskaya_odezhda/bryuki-ASgBAgICAkTeAtgL4ALcCw' },
   ];
-  const DENIM65 = { names: "Levi's, Evisu, Carrera, Wrangler, Rifle, Lee", ids: [1689692, 18389243, 1689388, 1690109, 17463903, 1689689], text: [{ name: 'Momotaro', q: 'momotaro' }] };
+  const DENIM65 = { names: "Levi's, Evisu, Carrera, Wrangler, Rifle, Lee", ids: [1689692, 18389243, 1689388, 1690109, 17463903, 1689689], text: [{ name: 'Momotaro', q: 'momotaro', subs: [JEANS] }] }; // брюк Momotaro на Авито нет (пользователь, 20.10)
   const subUrl = (sub, { ids = [], q = null }) => `https://www.avito.ru${sub.path}?d=1&f=${avfEncode({ singles: [[P_CAT, 748], [P_SUBCAT, sub.id]],
-    multi: [[P_SIZE, STD.sizes], ...(ids.length ? [[P_BRAND, ids]] : [])], json: [P_PRICE, STD.price] })}${q ? '&q=' + encodeURIComponent(q) : ''}&s=104`;
+    multi: [[P_SIZE, STD.sizes], ...(ids.length ? [[P_BRAND, ids]] : [])], json: [P_PRICE, STD.price] })}${q ? '&q=' + encodeURIComponent(q) + '&cd=1' : ''}&s=104`;
   function addDenim65() {
     if (GM_getValue('plan65', '') || mergeRunning || feedRunning) return;
     const list = load(), has = (url) => list.some((x) => fingerprint(x.url) === fingerprint(url));
     const want = [];
     for (const sub of SUBS) {
       want.push({ sub, name: `👕 ${sub.label}: ${DENIM65.names}`, url: subUrl(sub, { ids: DENIM65.ids }) });
-      for (const t of DENIM65.text) want.push({ sub, name: `👕 ${t.name} — ${sub.word}`, url: subUrl(sub, { q: t.q }) });
+      for (const t of DENIM65.text.filter((x) => !x.subs || x.subs.includes(sub.id))) want.push({ sub, name: `👕 ${t.name} — ${sub.word}`, url: subUrl(sub, { q: t.q }) });
     }
     // старый поиск «Levi's — джинсы» (v6.2) становится поиском джинсов всех брендов — с его отметками «просмотрено»
     const old = list.find((x) => !/[?&]q=/.test(x.url) && ((fOf(x.url) || { singles: [] }).singles.some(([k, v]) => k === P_SUBCAT && v === JEANS)));
@@ -3436,6 +3438,33 @@
     GM_setValue('plan65', 'done:' + Date.now());
   }
   setTimeout(addDenim65, 4000);
+  // Поиск по слову без cd=1 Авито уводит из раздела в общий поиск по всему сайту (…/all/lichnye_veschi?q=dolani),
+  // теряя все фильтры, — скрипт видит пустую заготовку. С cd=1 остаётся в разделе (проверено пользователем 20.10:
+  // Dolani — 125 в мужской обуви, Momotaro — брюки). Дописываем при каждом запуске, без запросов.
+  const withCd = (url) => { const u = new URL(url); if (!u.searchParams.get('q') || u.searchParams.get('cd') === '1') return url; u.searchParams.set('cd', '1'); return u.toString(); };
+  const DOLANI_URL = 'https://www.avito.ru/all/odezhda_obuv_aksessuary/obuv_muzhskaya-ASgBAgICAUTeArqp1gI?cd=1&d=1&f=ASgBAQECAUTeArqp1gIBQLiHDjTS8pMB1vKTAdrykwEBRcaaDBV7ImZyb20iOjAsInRvIjoxMDAwMH0&q=dolani&s=104';
+  function textFix67() {
+    if (mergeRunning || feedRunning) return;
+    const list = load();
+    let n = 0;
+    for (const s of list) { const u = withCd(s.url); if (u !== s.url) { s.url = u; s.warn = ''; n++; } }
+    if (!GM_getValue('plan67', '')) {
+      // Dolani: 4 поиска по видам обуви → один на всю мужскую обувь (вещей мало); «Momotaro — брюки» убираем
+      const qOf = (s) => { try { return new URL(s.url).searchParams.get('q') || ''; } catch { return ''; } };
+      const dol = list.filter((s) => qOf(s).toLowerCase() === 'dolani');
+      if (dol.length) {
+        const keep = dol.find((s) => s.lastTs) || dol[0];
+        Object.assign(keep, { name: '👞 Dolani — обувь', url: DOLANI_URL, warn: '', ban: [...new Set(dol.flatMap((s) => s.ban || []))] });
+        dol.filter((s) => s !== keep).forEach((s) => list.splice(list.indexOf(s), 1));
+      }
+      const mb = list.findIndex((s) => qOf(s).toLowerCase() === 'momotaro' && (fOf(s.url) || { singles: [] }).singles.some(([k, v]) => k === P_SUBCAT && v === 750));
+      if (mb >= 0) list.splice(mb, 1);
+      n += dol.length + (mb >= 0 ? 1 : 0);
+      GM_setValue('plan67', 'done:' + Date.now());
+    }
+    if (n) save(list);
+  }
+  setTimeout(textFix67, 4500);
   // Поиск одного бренда Авито отдаёт только по адресу с брендом в пути: …/dzhinsy/levi_sr-<код с брендом>, бренд
   // одиночным параметром и в f. Любой другой адрес (бренд в f без пути, бренд списком из одного) — пустая заготовка
   // без объявлений, а браузер потом сам переходит на адрес с брендом (скриншот пользователя 20.10: «Levi's — джинсы»).
