@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Avito — скрыть продавцов + мои поиски
 // @namespace    avito-seller-blocker
-// @version      6.8
+// @version      6.9
 // @description  Скрытие продавцов, сохранённые поиски, стоп-слова, лента новых объявлений по всем поискам
 // @match        https://www.avito.ru/*
 // @match        https://m.avito.ru/*
@@ -1333,6 +1333,7 @@
 
   let feedRunning = false;
   const CONCURRENCY = 3;
+  const SLOW_EVERY = 2 * 3600000;    // редкие поиски по слову (v6.9) — раз в 2 часа
   const MAX_PAGES = 8; // объединённые поиски (по 7 брендов) после перерыва могут набрать несколько страниц новых                // дочитываем до 3 страниц, если все объявления на странице новые              // сколько поисков проверяем одновременно
   const LOCK_KEY = 'feedLock';        // чтобы две вкладки не проверяли одновременно
   const BG_EVERY = 5 * 60000;
@@ -1592,7 +1593,7 @@
   // Чистим ленту от лишнего. Непросмотренные объявления НЕ трогаем (раньше обрезали всё подряд до 400 —
   // и после долгого перерыва большая часть новых пропадала). Режем только просмотренные и скрытые фильтрами.
   // номер версии кода: вкладка со старой версией, увидев более новую, перестаёт проверять в фоне
-  const CODE_VER = 68;
+  const CODE_VER = 69;
   if (+GM_getValue('codeVer', 0) < CODE_VER) GM_setValue('codeVer', CODE_VER);
   const PENDING_MAX = 5000; // аварийный потолок для непросмотренных
   function trimFeed(feed) {
@@ -1652,6 +1653,8 @@
     if (pickIds) list = list.filter((x) => pickIds.includes(x.id));
     // сначала те, что дольше всех не проверялись: если прошлую проверку прервала пауза — продолжаем с них
     list = [...list].sort((a, b) => (a.lastCheckAt || 0) - (b.lastCheckAt || 0));
+    // редкие поиски по слову (памятка, v6.9) — не чаще раза в 2 часа: новых там мало, а запросов к Авито было бы вдвое больше
+    if (!pickIds) { const now = Date.now(); list = list.filter((x) => !x.slow || now - (x.lastCheckAt || 0) > SLOW_EVERY); }
     if (limit && list.length > limit) list = list.slice(0, limit);
     const S = newCheckState();
     const flushTimer = setInterval(() => { try { S.flush(); } catch { /* попробуем в следующий раз */ } }, 3000);
@@ -3588,6 +3591,112 @@
     if (n) save(list);
   }
   setTimeout(textFix67, 4500);
+  // v6.9 — бренды из памятки пользователя (25.10): кожа и авангард, трикотаж, heritage, обувь, перчатки, галантерея, деним.
+  // Без тех, кто делает в основном классические костюмы (просьба пользователя): костюмные и сорочечные ткани (VBC, Reda,
+  // Drago, Marzotto, Piacenza, Holland & Sherry, Harrisons, Smith Woollens, Dugdale, Fox Brothers, Thomas Mason, Albini,
+  // Canclini, Monti, Alumo), портновские фабрики (Saint Andrews, Caruso, Belvest, Cantarelli, Isaia, Lardini, Martin
+  // Greenfield, Hickey Freeman, Oxxford, Pal Zileri, Vestimenta), Brooks Brothers, J.Press, Paul Stuart. Zegna и
+  // Brunello Cucinelli пользователь убирал раньше. Бренды с кодом в каталоге — фильтром, группами до 7; остальные — словом.
+  // Буквы разделов: o — одежда, s — обувь, a — аксессуары, b — сумки.
+  const PLAN69 = {
+    groups: [
+      ['Кожа и авангард', [['Giorgio Brato', 18735942, 'osab'], ['Isaac Sellam', 18735953, 'osab'], ['Masnada', 17463225, 'os'], ['Guidi', 17314122, 'osab'],
+        ['Boris Bidjan Saberi', 18735906, 'osab'], ['Carol Christian Poell', 18798223, 'osab'], ['Incarnation', 18798264, 'osab'], ['Layer-0', 18798274, 'osab'],
+        ['Rick Owens', 1689934, 'osab'], ['Belstaff', 17461456, 'osab'], ['Seraphin', 17464120, 'o'], ['DROME', 1689449, 'o']]],
+      ['Трикотаж и кашемир', [['Barrie', 17461415, 'oa'], ['Pringle of Scotland', 18735999, 'oa'], ['Ballantyne', 17461398, 'oa'], ['Lyle & Scott', 1689715, 'o'],
+        ['Loro Piana', 1689699, 'osab'], ['Agnona', 17461130, 'oa'], ['Colombo', 17461795, 'oa'], ['Malo', 17463162, 'oa'], ['Drumohr', 17461998, 'oa'],
+        ['Roberto Collina', 18736002, 'o'], ['Fedeli', 17462196, 'o'], ['Mantero', 17463180, 'a']]],
+      ['Heritage', [['Mackintosh', 17463124, 'oab'], ['Pendleton', 17463691, 'oa'], ['Woolrich', 1690110, 'o'], ['Barbour', 1689327, 'osab'], ['Filson', 17462216, 'oab'],
+        ["Lands'End", 22007796, 'o'], ['L.L.Bean', 22368086, 'osb'], ['BEAMS', 18389234, 'osab'], ['Neiman Marcus', 18798299, 'oa']]],
+      ['Классическая обувь', [['Officine Creative', 1689825, 'sb'], ['Premiata', 1689896, 's'], ['Pantanetti', 17463661, 's'], ["Church's", 17461761, 's'],
+        ["Tricker's", 17464470, 's'], ['Grenson', 17462427, 's'], ['Loake', 17463002, 's'], ['Red Wing', 17463867, 's'], ['Santoni', 1689964, 'sb'],
+        ['Gravati', 17462425, 's'], ['Paraboot', 17463667, 's'], ['Buttero', 17461612, 'sb']]],
+      ['Перчатки и шляпы', [['Hestra', 17462519, 'a'], ['Roeckl', 17463939, 'a'], ['Agnelle', 17461131, 'a'], ['Gallo', 17462341, 'a'], ['Borsalino', 17461540, 'a'], ['Christys', 17461755, 'a']]],
+    ],
+    // [слово для поиска, разделы, название]; редкие — проверяются раз в 2 часа (slow)
+    text: [
+      // кожа
+      ['salvatore santoro', 'o', 'Salvatore Santoro'], ['s.w.o.r.d', 'osb', 'S.W.O.R.D 6.6.44'], ['elia maurizi', 's', 'Elia Maurizi'], ['matchless', 'o', 'Matchless'],
+      ['schott', 'o', 'Schott'], ['ruffo', 'o', 'Ruffo'], ['pellemoda', 'o', 'Pellemoda'], ['la matta', 'o', 'La Matta'], ['mandelli', 'o', 'Enrico Mandelli'],
+      ['longhi', 'o', 'Longhi'], ['schiatti', 'o', 'Schiatti'], ['chapal', 'o', 'Chapal'], ['aero leather', 'o', 'Aero Leather'], ['lewis leathers', 'o', 'Lewis Leathers'],
+      ['eastman leather', 'o', 'Eastman'], ['vanson', 'o', 'Vanson'], ['himel', 'o', 'Himel'], ['real mccoy', 'os', "Real McCoy's"], ['sawyer', 'o', 'Sawyer of Napa'],
+      ['werner christ', 'o', 'Werner Christ'], ['nursey', 'o', 'Nursey'],
+      // трикотаж и шерсть: Шотландия, Англия, Ирландия, Исландия, Перу, Италия
+      ['johnstons', 'oa', 'Johnstons'], ['lockie', 'o', 'William Lockie'], ['hawico', 'o', 'Hawico'], ['love cashmere', 'o', 'Love Cashmere'], ['begg', 'a', 'Begg'],
+      ['hawick', 'oa', 'Hawick'], ['braemar', 'o', 'Braemar'], ['mcgeorge', 'o', 'McGeorge'], ['macdougall', 'o', 'MacDougall'], ['munrospun', 'o', 'Munrospun'],
+      ['murray allan', 'o', 'Murray Allan'], ['clark gregory', 'o', 'Clark & Gregory'], ['glenhusky', 'o', 'Glenhusky'], ['teribus', 'o', 'Teribus'], ['peter scott', 'o', 'Peter Scott'],
+      ['harley of scotland', 'o', 'Harley of Scotland'], ['jamiesons', 'o', "Jamieson's"], ['inverallan', 'o', 'Inverallan'], ['todd duncan', 'o', 'Todd & Duncan'],
+      ['kynoch', 'oa', 'Kynoch'], ['lochcarron', 'oa', 'Lochcarron'], ['lovat', 'oa', 'Lovat'], ['harris tweed', 'oab', 'Harris Tweed'],
+      ['joshua ellis', 'oa', 'Joshua Ellis'], ['moorbrook', 'o', 'Moorbrook'], ['abraham moon', 'oa', 'Abraham Moon'], ['mallalieus', 'a', 'Mallalieus'], ['smedley', 'o', 'John Smedley'],
+      ['john hanly', 'a', 'John Hanly'], ['magee', 'o', 'Magee'], ['donegal', 'o', 'Donegal'], ['mourne', 'oa', 'Mourne Textiles'], ['inis meain', 'o', 'Inis Meáin'],
+      ['alafoss', 'o', 'Álafoss'], ['lopi', 'o', 'Lopi'], ['incalpaca', 'oa', 'Incalpaca'], ['kuna', 'oa', 'Kuna'],
+      ['cariaggi', 'oa', 'Cariaggi'], ['gran sasso', 'o', 'Gran Sasso'], ['clerici', 'a', 'Clerici Tessuto'], ['ratti', 'a', 'Ratti'],
+      // пальто и куртки
+      ['forstmann', 'o', 'Forstmann'], ['stroock', 'o', 'Stroock'], ['einiger', 'o', 'Einiger'], ['warren of stafford', 'o', 'Warren of Stafford'], ['invertere', 'o', 'Invertere'],
+      ['gloverall', 'o', 'Gloverall'], ['grenfell', 'o', 'Grenfell'], ['private white', 'o', 'Private White V.C.'], ['loden', 'o', 'Loden'], ['steiner', 'oa', 'Steiner'],
+      ['moessmer', 'oa', 'Moessmer'], ['faribault', 'oa', 'Faribault'], ['golden bear', 'o', 'Golden Bear'],
+      // обувь
+      ['edward green', 's', 'Edward Green'], ['crockett jones', 's', 'Crockett & Jones'], ['alfred sargent', 's', 'Alfred Sargent'], ['peal', 's', 'Peal & Co'],
+      ['sanders', 's', 'Sanders'], ['cheaney', 's', 'Cheaney'], ['gaziano', 's', 'Gaziano & Girling'], ['john lobb', 's', 'John Lobb'], ['alden', 's', 'Alden'],
+      ['allen edmonds', 's', 'Allen Edmonds'], ['whites boots', 's', "White's"], ['wesco', 's', 'Wesco'], ['viberg', 's', 'Viberg'], ['lattanzi', 's', 'Silvano Lattanzi'],
+      ['carmina', 's', 'Carmina'], ['meermin', 's', 'Meermin'], ['vass', 's', 'Vass'], ['crispin', 's', "Saint Crispin's"], ['dinkelacker', 's', 'Dinkelacker'], ['weston', 's', 'J.M. Weston'],
+      // перчатки
+      ['dents', 'a', 'Dents'], ['kessler', 'a', 'Otto Kessler'], ['laimbock', 'a', 'Laimböck'], ['causse', 'a', 'Causse'], ['lavabre', 'a', 'Lavabre Cadet'], ['perrin', 'a', 'Perrin'],
+      ['sermoneta', 'a', 'Sermoneta'], ['portolano', 'a', 'Portolano'], ['merola', 'a', 'Merola'], ['restelli', 'a', 'Restelli'], ['orsini', 'a', 'Fratelli Orsini'],
+      ['forino', 'a', 'Fratelli Forino'], ['chester jefferies', 'a', 'Chester Jefferies'], ['southcombe', 'a', 'Southcombe'], ['cornelia james', 'a', 'Cornelia James'],
+      ['randers', 'a', 'Randers'], ['gala gloves', 'a', 'Gala'], ['fownes', 'a', 'Fownes'], ['peccary', 'a', 'Peccary'], ['пекари', 'a', 'Пекари'],
+      // кожевенные заводы — их имя пишут на бирке, стельке или в описании
+      ['horween', 'sab', 'Horween'], ['chromexcel', 's', 'Chromexcel'], ['cf stead', 's', 'C.F. Stead'], ['pittards', 'a', 'Pittards'], ['baker leather', 'sab', 'Baker Leather'],
+      ['bridle', 'a', 'Bridle'], ['haas', 'ab', 'Haas'], ['minerva', 'sb', 'Minerva'], ['rocado', 's', 'Rocado'], ['shinki', 'sa', 'Shinki'], ['tochigi', 'ab', 'Tochigi'],
+      // галантерея и аксессуары
+      ['andersons', 'a', "Anderson's"], ['whitehouse cox', 'ab', 'Whitehouse Cox'], ['glenroyal', 'ab', 'Glenroyal'], ['ettinger', 'ab', 'Ettinger'], ['bussetto', 'a', 'Il Bussetto'],
+      ['swaine', 'ab', 'Swaine Adeney Brigg'], ['fox umbrellas', 'a', 'Fox Umbrellas'], ['francesco maglia', 'a', 'Francesco Maglia'], ['pantherella', 'a', 'Pantherella'],
+      ['bresciani', 'a', 'Bresciani'], ['marcoliani', 'a', 'Marcoliani'], ['drakes', 'oa', "Drake's"], ['marinella', 'a', 'E. Marinella'], ['atkinsons', 'a', 'Atkinsons'], ['sunspel', 'o', 'Sunspel'],
+      // деним
+      ['kaihara', 'o', 'Kaihara'], ['kuroki', 'o', 'Kuroki'], ['cone mills', 'o', 'Cone Mills'], ['candiani', 'o', 'Candiani'], ['pure blue japan', 'o', 'Pure Blue Japan'],
+      ['iron heart', 'o', 'Iron Heart'], ['samurai jeans', 'o', 'Samurai'], ['studio d artisan', 'o', "Studio D'Artisan"], ['flat head', 'o', 'Flat Head'], ['oni denim', 'o', 'Oni'],
+      // private label с биркой «Made in …»
+      ['barneys', 'oa', 'Barneys'], ['scotch house', 'oa', 'The Scotch House'], ['st michael', 'o', 'St Michael'], ['united arrows', 'os', 'United Arrows'], ['journal standard', 'o', 'Journal Standard'],
+    ],
+  };
+  const KIND69 = { o: 'odezhda', s: 'obuv', a: 'aksessuary', b: 'sumki' };
+  const LABEL69 = { odezhda: 'одежда', obuv: 'обувь', aksessuary: 'аксессуары', sumki: 'сумки' };
+  // группы поровну, не больше 7: так не бывает поиска из одного бренда (ему нужен адрес с брендом, см. brandFix66)
+  const chunk7 = (a) => { const n = Math.ceil(a.length / 7), out = []; for (let i = 0; i < n; i++) out.push(a.slice(Math.round(i * a.length / n), Math.round((i + 1) * a.length / n))); return out; };
+  function addMemo69() {
+    if (GM_getValue('plan69', '') || mergeRunning || feedRunning) return;
+    const list = load();
+    const has = (url) => list.some((x) => fingerprint(x.url) === fingerprint(url));
+    const qOf = (u) => { try { return (new URL(u).searchParams.get('q') || '').toLowerCase(); } catch { return ''; } };
+    const banOf = (k) => (k === 'aksessuary' || k === 'sumki' ? ((list.find((x) => kindKeyOf(x) === k) || {}).ban || []).slice() : []);
+    const idsIn = {}, qIn = {};
+    for (const x of list) { const k = kindKeyOf(x); (idsIn[k] = idsIn[k] || new Set()); brandIdsOf(x.url).forEach((id) => idsIn[k].add(id)); (qIn[k] = qIn[k] || new Set()).add(qOf(x.url)); }
+    const add = [];
+    for (const [theme, brands] of PLAN69.groups) {
+      for (const [letter, k] of Object.entries(KIND69)) {
+        const todo = brands.filter(([, id, kinds]) => kinds.includes(letter) && !(idsIn[k] && idsIn[k].has(id)));
+        for (const g of chunk7(todo)) {
+          const one = g.length === 1 && g[0]; // один бренд — сразу адрес с брендом в пути (см. brandFix66)
+          const url = one ? seoBrandUrl(kindUrl(k, { ids: [one[1]] }), one[1], BRAND_SLUG[one[1]] || brandSlug(one[0])) : kindUrl(k, { ids: g.map(([, id]) => id) });
+          const name = one ? `${KIND[k].icon} ${one[0]} — ${LABEL69[k]}` : `${KIND[k].icon} ${theme}: ${g.map(([n]) => n).join(', ')}`;
+          if (!has(url)) add.push({ name, url, ban: banOf(k) });
+        }
+      }
+    }
+    for (const [q, kinds, title] of PLAN69.text) {
+      for (const letter of kinds) {
+        const k = KIND69[letter], url = kindUrl(k, { q });
+        if (qIn[k] && qIn[k].has(q)) continue;
+        // первая проверка только запоминает выдачу — растягиваем первые проверки на 2 часа, чтобы не встали в очередь разом
+        if (!has(url)) add.push({ name: `${KIND[k].icon} ${title} — ${LABEL69[k]}`, url, ban: banOf(k), slow: true, lastCheckAt: Date.now() - SLOW_EVERY + Math.round(Math.random() * SLOW_EVERY) });
+      }
+    }
+    add.forEach((x, i) => list.push({ id: Date.now() + i, seen: [], lastVisit: 0, ...x }));
+    if (add.length) save(list);
+    GM_setValue('plan69', 'done:' + Date.now() + ':' + add.length);
+    if (add.length) toastMsg(`⭐ Добавлено поисков из памятки: ${add.length} (${add.filter((x) => !x.slow).length} по бренду, ${add.filter((x) => x.slow).length} по слову — их проверяю раз в 2 часа).`);
+  }
+  setTimeout(addMemo69, 5000);
   // Поиск одного бренда Авито отдаёт только по адресу с брендом в пути: …/dzhinsy/levi_sr-<код с брендом>, бренд
   // одиночным параметром и в f. Любой другой адрес (бренд в f без пути, бренд списком из одного) — пустая заготовка
   // без объявлений, а браузер потом сам переходит на адрес с брендом (скриншот пользователя 20.10: «Levi's — джинсы»).
