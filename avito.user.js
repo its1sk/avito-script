@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Avito — скрыть продавцов + мои поиски
 // @namespace    avito-seller-blocker
-// @version      6.9
+// @version      7.0
 // @description  Скрытие продавцов, сохранённые поиски, стоп-слова, лента новых объявлений по всем поискам
 // @match        https://www.avito.ru/*
 // @match        https://m.avito.ru/*
@@ -9,7 +9,6 @@
 // @grant        GM_setValue
 // @grant        GM_registerMenuCommand
 // @grant        GM_setClipboard
-// @grant        GM_notification
 // @grant        GM_xmlhttpRequest
 // @connect      api.github.com
 // @connect      gist.githubusercontent.com
@@ -828,6 +827,8 @@
   const loadFeed = () => { try { return JSON.parse(GM_getValue(FEED_KEY, '{}')) || {}; } catch { return {}; } };
   const loadFeedRO = () => peekJSON(FEED_KEY, '{}'); // НЕ менять то, что вернула
   const saveFeed = (f) => GM_setValue(FEED_KEY, JSON.stringify(f));
+  // поиск по слову без кода бренда (Energie, Dolani, памятка v6.9); поиск с кодом и словом (KENZO пользователя) — по бренду
+  const isTextSearch = (s) => /[?&]q=/.test(s.url || '') && !brandIdsOf(s.url).length;
   const loadMeta = () => { try { return JSON.parse(GM_getValue(FEED_META, '{}')) || {}; } catch { return {}; } };
   const saveMeta = (m) => GM_setValue(FEED_META, JSON.stringify(m));
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -853,7 +854,7 @@
 
   // настройки ленты
   const OPT_KEY = 'amsOpts';
-  const loadOpts = () => ({ notify: true, hiddenTab: false, desc: true, noNewTag: true, sort: 'date', ...peekJSON(OPT_KEY, '{}') });
+  const loadOpts = () => ({ hiddenTab: false, desc: true, noNewTag: true, sort: 'date', ...peekJSON(OPT_KEY, '{}') });
   const isNewTag = (it) => /^новое с бирк/.test(norm(String(it.params || '').split('·')[0]).trim());
   const saveOpt = (k, v) => GM_setValue(OPT_KEY, JSON.stringify({ ...peekJSON(OPT_KEY, '{}'), [k]: v }));
 
@@ -1324,6 +1325,7 @@
     if (it.sellerName && sellers['name:' + it.sellerName.toLowerCase()]) return 'seller';
     if (c.noNewTag && isNewTag(it)) return 'newtag'; // «Новое с биркой» не показываем совсем (⚙️)
     if (isRemovedBrand(it)) return 'removed'; // бренды, которые вы убрали (Off White, Fear of God…) — кто бы их ни нашёл
+    if (isKindRemoved(it, search)) return 'removed'; // сумки Bottega Veneta, Louis Vuitton, Hermès
     const words = [...global, ...((search && search.ban) || [])];
     if (findWord(itemText(it), words)) return 'word';
     if (insoleMismatch(it, search)) return 'insole';
@@ -1333,11 +1335,8 @@
 
   let feedRunning = false;
   const CONCURRENCY = 3;
-  const SLOW_EVERY = 2 * 3600000;    // редкие поиски по слову (v6.9) — раз в 2 часа
   const MAX_PAGES = 8; // объединённые поиски (по 7 брендов) после перерыва могут набрать несколько страниц новых                // дочитываем до 3 страниц, если все объявления на странице новые              // сколько поисков проверяем одновременно
   const LOCK_KEY = 'feedLock';        // чтобы две вкладки не проверяли одновременно
-  const BG_EVERY = 5 * 60000;
-  const BG_BATCH = 25;                // столько поисков за одну фоновую проверку         // фоновая проверка раз в 5 минут
 
   // быстрый разбор: вырезаем из страницы только карточки, а не строим DOM всех 2 МБ
   function quickCards(html) {
@@ -1593,7 +1592,7 @@
   // Чистим ленту от лишнего. Непросмотренные объявления НЕ трогаем (раньше обрезали всё подряд до 400 —
   // и после долгого перерыва большая часть новых пропадала). Режем только просмотренные и скрытые фильтрами.
   // номер версии кода: вкладка со старой версией, увидев более новую, перестаёт проверять в фоне
-  const CODE_VER = 69;
+  const CODE_VER = 70;
   if (+GM_getValue('codeVer', 0) < CODE_VER) GM_setValue('codeVer', CODE_VER);
   const PENDING_MAX = 5000; // аварийный потолок для непросмотренных
   function trimFeed(feed) {
@@ -1641,7 +1640,7 @@
   }
 
   // limit — проверить только столько поисков, которые дольше всех не проверялись (по кругу)
-  async function checkAll(onProgress, onPartial, limit = 0, pickIds = null) {
+  async function checkAll(onProgress, onPartial, limit = 0, pickIds = null, mode = null) {
     if (feedRunning) return null;
     if (+GM_getValue('codeVer', 0) > CODE_VER) return { found: 0, problem: 'Скрипт обновился — обновите эту страницу.', busy: true };
     const lock = +GM_getValue(LOCK_KEY, 0);
@@ -1653,8 +1652,8 @@
     if (pickIds) list = list.filter((x) => pickIds.includes(x.id));
     // сначала те, что дольше всех не проверялись: если прошлую проверку прервала пауза — продолжаем с них
     list = [...list].sort((a, b) => (a.lastCheckAt || 0) - (b.lastCheckAt || 0));
-    // редкие поиски по слову (памятка, v6.9) — не чаще раза в 2 часа: новых там мало, а запросов к Авито было бы вдвое больше
-    if (!pickIds) { const now = Date.now(); list = list.filter((x) => !x.slow || now - (x.lastCheckAt || 0) > SLOW_EVERY); }
+    // две кнопки: «бренды» — поиски с кодом бренда, «слова» — поиски по слову для брендов без кода (их много, жмут реже)
+    if (mode) list = list.filter((x) => isTextSearch(x) === (mode === 'text'));
     if (limit && list.length > limit) list = list.slice(0, limit);
     const S = newCheckState();
     const flushTimer = setInterval(() => { try { S.flush(); } catch { /* попробуем в следующий раз */ } }, 3000);
@@ -1722,7 +1721,7 @@
       const f = loadFeed(), n0 = Object.keys(f).length;
       trimFeed(f);
       if (Object.keys(f).length !== n0) saveFeed(f);
-      saveMeta({ lastCheck: Date.now() });
+      saveMeta({ ...loadMeta(), [mode === 'text' ? 'lastTextCheck' : 'lastCheck']: Date.now() });
       GM_setValue(LOCK_KEY, '0');
       feedRunning = false;
       updateFabBadge();
@@ -1730,51 +1729,7 @@
     return { found, problem, blocked: stop };
   }
 
-  // ---- фоновая проверка: темп подстраивается под Авито, частые поиски проверяются чаще ----
-  const BG = { minGap: 90000, start: 20, min: 8, max: 60, step: 5, pause: 10 * 60000, fast: 6 * 60000, slow: 40 * 60000 };
-  const loadBg = () => { try { return JSON.parse(GM_getValue('bgState', '{}')) || {}; } catch { return {}; } };
-  const saveBg = (o) => GM_setValue('bgState', JSON.stringify(o));
-  // как часто проверять поиск: активные — раз в ~6 мин, «тихие» — раз в ~40 мин
-  const wantEvery = (s) => Math.max(BG.fast, Math.min(BG.slow, BG.slow / (1 + 3 * (s.rate || 0))));
-  const overdue = (s, now) => (now - (s.lastCheckAt || 0)) / wantEvery(s);
-
-  async function backgroundTick() {
-    if ((document.visibilityState !== 'visible' && !loadOpts().hiddenTab) || feedRunning || mergeRunning || !loadRO().length) return;
-    const bg = loadBg(), now = Date.now();
-    if (now < (bg.pauseUntil || 0) || now - (loadMeta().lastCheck || 0) < BG.minGap) return;
-    const batch = bg.batch || BG.start;
-    const due = loadRO().map((s) => [s, overdue(s, now)]).filter(([, o]) => o >= 1).sort((a, b) => b[1] - a[1]);
-    if (!due.length) return;
-    const pick = due.slice(0, batch).map(([s]) => s.id);
-    // в открытой ленте найденное появляется само, не сбивая прокрутку
-    const r = await checkAll(null, () => feedUi && feedUi.partial(), 0, pick);
-    if (!r || r.busy) return;
-    if (feedUi) feedUi.done(r);
-    if (r.found) { await descRun(); notifyNew(now); } // сначала описания: паль из уведомления уйдёт
-    if (r.blocked) { // Авито просит паузу — вдвое медленнее и отдыхаем
-      saveBg({ batch: Math.max(BG.min, Math.floor(batch / 2)), pauseUntil: Date.now() + BG.pause, lastBlock: Date.now() });
-    } else if (pick.length >= batch) { // всё прошло, а очередь была полной — можно чуть быстрее
-      saveBg({ ...bg, batch: Math.min(BG.max, batch + BG.step), pauseUntil: 0 });
-    }
-  }
-  setTimeout(backgroundTick, 4000);
-  setInterval(backgroundTick, 60000);
-
-  // 🔔 уведомление о новых, когда вы не смотрите на вкладку Авито (хорошие вещи разбирают быстро)
-  let lastNotify = 0;
-  function notifyNew(since) {
-    if (!loadOpts().notify || typeof GM_notification !== 'function') return;
-    if (document.visibilityState === 'visible' && document.hasFocus()) return; // вы и так смотрите на Авито
-    const fresh = pendingItems().filter((x) => !x.pv && !x.shownAt && x.found >= since);
-    if (!fresh.length || Date.now() - lastNotify < 60000) return;
-    lastNotify = Date.now();
-    const text = fresh.slice(0, 3).map((x) => `${fmtPrice(x.price)} — ${x.title}`).join('\n') +
-      (fresh.length > 3 ? `\n…и ещё ${fresh.length - 3}` : '');
-    try {
-      GM_notification({ title: `⭐ Авито: новых ${fresh.length}`, text, timeout: 20000,
-        onclick: () => { try { window.focus(); } catch { /* ничего */ } if (feedUi) feedUi.show(); else openFeed(false); } });
-    } catch { /* уведомления недоступны */ }
-  }
+  // Фоновой проверки поисков нет (пользователь, 25.10: «полностью убери») — только по кнопкам в ленте.
 
   // ---------------- полные описания: скачиваем анонимно ----------------
   // В выдаче Авито описания почти нет (было у 7 объявлений из 100), а «размеры S–XXL в наличии», «поможем подобрать
@@ -2144,20 +2099,12 @@
         const s = el('div', null, hint); s.style.cssText = 'color:#777;font-size:12px;margin-top:2px';
         t.append(s); l.append(c, t); box.append(l);
       };
-      row('notify', '🔔 Уведомлять о новых объявлениях', 'Когда фоновая проверка нашла новое, а вы смотрите не на Авито. Не чаще раза в минуту.');
-      row('hiddenTab', '🌙 Проверять, даже когда вкладка Авито не на экране',
-        'Для ПК: оставьте одну вкладку Авито открытой в фоне — скрипт будет проверять поиски и присылать уведомления. На телефоне браузер обычно усыпляет фоновые вкладки.');
       row('noNewTag', '🏷 Скрывать «Новое с биркой»',
         'Такие вещи не показываются нигде — ни в ленте, ни на страницах поиска, и их описания не скачиваются (меньше запросов к Авито).');
       row('desc', '📄 Загружать описания новых вещей для детектора пали',
         'В выдаче Авито описания нет, а «все размеры в наличии» пишут именно там. Страница скачивается как обычно, с вашими cookie (без них Авито не пускает) — это может влиять на рекомендации. По одной раз в несколько секунд.');
       const ds = el('div', null, descStatus()); ds.style.cssText = 'color:#555;font-size:12px;margin:4px 0 0 24px';
       box.append(ds);
-      const test = mbtn('Проверить уведомление');
-      test.onclick = () => {
-        if (typeof GM_notification !== 'function') { alert('Уведомления недоступны в этом браузере или Tampermonkey.'); return; }
-        try { GM_notification({ title: '⭐ Авито: так выглядит уведомление', text: '5 000 ₽ — пример объявления', timeout: 8000 }); } catch (e) { alert('Не вышло: ' + e.message); }
-      };
       const probe = mbtn('🔬 Проверить загрузку описания');
       probe.onclick = async () => {
         const it = descCandidates()[0] || pendingItems().find((x) => x.url);
@@ -2186,7 +2133,7 @@
       const ok = mbtn('Готово', true); ok.onclick = close;
       const keys = el('div', null, 'Клавиши в ленте (ПК): J / K — следующее / предыдущее, O или Enter — открыть, X — скрыть, F — отложить.');
       keys.style.cssText = 'color:#555;font-size:12px;margin-top:6px';
-      box.append(keys, test, probe, fastB, rep, devP, devS, ok);
+      box.append(keys, probe, fastB, rep, devP, devS, ok);
     });
   }
 
@@ -2343,7 +2290,11 @@
     const top = el('div', 'amf-top');
     const h = el('h2', null, '🆕 Новые объявления');
     h.title = 'Клавиши: J / K — следующее / предыдущее, O или Enter — открыть, X — скрыть, F — отложить';
-    const refresh = el('button', 'ams-btn primary', '🔄 Проверить');
+    const refresh = el('button', 'ams-btn primary', '🔄 Бренды');
+    refresh.title = 'Проверить поиски по брендам';
+    const textN = loadRO().filter(isTextSearch).length;
+    const refreshText = el('button', 'ams-btn', `🔎 Слова (${textN})`);
+    refreshText.title = 'Проверить поиски по слову — бренды, которых нет в фильтре Авито. Их много, а новых мало: нажимайте реже.';
     const allSeen = el('button', 'ams-btn', '✓ Всё просмотрено');
     const close = el('button', 'ams-btn', '✕'); close.id = 'amf-close';
     const status = el('div', 'amf-status');
@@ -2371,7 +2322,7 @@
     };
     const optBtn = el('button', 'ams-btn', '⚙️'); optBtn.title = 'Настройки: уведомления, проверка в фоне, клавиши';
     optBtn.onclick = openFeedOpts;
-    top.append(h, refresh, allSeen, why, back, optBtn, close, status, chips);
+    top.append(h, refresh, refreshText, allSeen, why, back, optBtn, close, status, chips);
     const listEl = el('div', 'amf-list');
     root.append(top, listEl);
     document.body.append(root);
@@ -2741,7 +2692,8 @@
     }
 
     function setStatus(text) {
-      status.textContent = text || `Последняя проверка: ${ago(loadMeta().lastCheck)}`;
+      const meta = loadMeta();
+      status.textContent = text || `Последняя проверка: бренды — ${ago(meta.lastCheck)}, слова — ${ago(meta.lastTextCheck)}`;
       if (text) return; // во время проверки — только строка прогресса, без разбора всех поисков
       const gone = loadRO().filter((x) => x.warn === 'notfound');
       if (gone.length) {
@@ -2768,18 +2720,20 @@
       }
     }
 
-    async function run(limit = 0) {
-      refresh.disabled = true; refresh.textContent = '⏳ Проверяю…';
-      const p = checkAll(setStatus, drawSoon, typeof limit === 'number' ? limit : 0);
+    async function run(limit = 0, mode = 'brand') {
+      const btn = mode === 'text' ? refreshText : refresh, label = btn.textContent;
+      refresh.disabled = refreshText.disabled = true; btn.textContent = '⏳ Проверяю…';
+      const p = checkAll(setStatus, drawSoon, typeof limit === 'number' ? limit : 0, null, mode);
       if (!curShown.length) draw(); // пустая лента — пишем «Ищу новые…»
       const r = await p;
-      refresh.disabled = false; refresh.textContent = '🔄 Проверить';
+      refresh.disabled = refreshText.disabled = false; btn.textContent = label;
       if (!r) { setStatus('Проверка уже идёт — найденное появится само.'); return; }
       setStatus(r.problem ? '⚠️ ' + r.problem : r.busy ? 'Проверка уже идёт в другой вкладке' : null);
       liveUpdate();
       descRun(); // описания новых — для детектора пали
     }
-    refresh.onclick = () => run(0);
+    refresh.onclick = () => run(0, 'brand');
+    refreshText.onclick = () => run(0, 'text');
     allSeen.onclick = () => {
       const items = compute().shown;
       if (!items.length) return;
@@ -2795,8 +2749,6 @@
       show: () => liveUpdate(),
     };
     setStatus(); draw();
-    // если давно не проверяли — проверяем сразу
-    if (autoCheck && Date.now() - (loadMeta().lastCheck || 0) > 2 * 60000) run(40);
   }
 
   // ---------------- фильтры Авито (параметр f и код в адресе) ----------------
@@ -3339,9 +3291,9 @@
   // Коды брендов в группах по 7 по названию поиска не восстановить (бренды всегда стоят вместе),
   // поэтому для поисков, где бренд надо убрать, открываем сам поиск: Авито пишет в нём, какие бренды выбраны.
   const PLAN58 = {
-    remove: ['Off White', 'Fear of God', 'Represent', '1017 Alyx 9SM', 'Alyx', 'Ambush', 'Cav Empt', 'Ksubi', 'Maharishi', 'Human Made'],
+    remove: ['Off White', 'Fear of God', 'Represent', '1017 Alyx 9SM', 'Alyx', 'Ambush', 'Cav Empt', 'Ksubi', 'Maharishi', 'Human Made', 'Loro Piana'], // Loro Piana — 25.10, «никогда не добавляй»
     // коды — из полного каталога брендов Авито (avito-brands.json в репозитории, 7 748 брендов)
-    removeIds: [1689827, 17314123, 18389262, 18798204, 18389230, 17314133, 18389236, 17462813, 17463138, 18389247],
+    removeIds: [1689827, 17314123, 18389262, 18798204, 18389230, 17314133, 18389236, 17462813, 17463138, 18389247, 1689699],
     add: [{ name: 'G-Star', id: 17464988 }, { name: 'Replay', id: 1689930 }, { name: 'Marithe Francois Girbaud', id: 18735979 }],
     text: [{ name: 'Energie', q: 'energie' }], // такого бренда нет в каталоге Авито — ищем по тексту
   };
@@ -3513,14 +3465,26 @@
   // Убранные бренды — навсегда. Разовая перестройка не защищала от того, что старый список вернётся
   // (вкладка, открытая до перестройки, копия, перенос, другой браузер) — на ПК «Стритвир 1» снова искался 19.10.
   // Поэтому при каждом запуске чистим поиски по кодам из каталога (без запросов к Авито).
+  // убрано только в одном разделе: сумки Bottega Veneta, Louis Vuitton, Hermès не нужны (пользователь, 25.10)
+  const RM_BY_KIND = { sumki: { names: ['Bottega Veneta', 'Louis Vuitton', 'Hermes', 'Hermès'], ids: [1689361, 1689706, 1689588] } };
+  const deacc = (t) => String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const rmKindKeys = (extra) => extra.keys || (extra.keys = extra.names.map((n) => key2(deacc(n))));
+  const isKindRemovedName = (extra, n) => { const k = key2(deacc(n)); return !!k && rmKindKeys(extra).some((r) => k === r || k.startsWith(r)); };
+  function isKindRemoved(it, search) {
+    const extra = search && RM_BY_KIND[kindKeyOf(search)];
+    return !!extra && isKindRemovedName(extra, brandOf(it));
+  }
   function enforceRemoved() {
     if (mergeRunning || feedRunning) return;
     const list = load(), rmIds = new Set(PLAN58.removeIds);
     let n = 0;
     for (const s of [...list]) {
+      const extra = RM_BY_KIND[kindKeyOf(s)];
+      const rmName = (n) => isRemoved(n) || (!!extra && isKindRemovedName(extra, n));
+      const rmId = (id) => rmIds.has(id) || (!!extra && extra.ids.includes(id));
       const names = searchBrandNames(s.name), ids = brandIdsOf(s.url);
-      if (!names.some(isRemoved) && !ids.some((id) => rmIds.has(id))) continue;
-      const keep = names.filter((x) => !isRemoved(x)), left = ids.filter((id) => !rmIds.has(id));
+      if (!names.some(rmName) && !ids.some(rmId)) continue;
+      const keep = names.filter((x) => !rmName(x)), left = ids.filter((id) => !rmId(id));
       n++;
       if (!keep.length || (ids.length && !left.length)) { list.splice(list.indexOf(s), 1); continue; }
       if (left.length !== ids.length) s.url = withBrandIds(s.url, left);
@@ -3604,7 +3568,7 @@
         ['Boris Bidjan Saberi', 18735906, 'osab'], ['Carol Christian Poell', 18798223, 'osab'], ['Incarnation', 18798264, 'osab'], ['Layer-0', 18798274, 'osab'],
         ['Rick Owens', 1689934, 'osab'], ['Belstaff', 17461456, 'osab'], ['Seraphin', 17464120, 'o'], ['DROME', 1689449, 'o']]],
       ['Трикотаж и кашемир', [['Barrie', 17461415, 'oa'], ['Pringle of Scotland', 18735999, 'oa'], ['Ballantyne', 17461398, 'oa'], ['Lyle & Scott', 1689715, 'o'],
-        ['Loro Piana', 1689699, 'osab'], ['Agnona', 17461130, 'oa'], ['Colombo', 17461795, 'oa'], ['Malo', 17463162, 'oa'], ['Drumohr', 17461998, 'oa'],
+        ['Agnona', 17461130, 'oa'], ['Colombo', 17461795, 'oa'], ['Malo', 17463162, 'oa'], ['Drumohr', 17461998, 'oa'],
         ['Roberto Collina', 18736002, 'o'], ['Fedeli', 17462196, 'o'], ['Mantero', 17463180, 'a']]],
       ['Heritage', [['Mackintosh', 17463124, 'oab'], ['Pendleton', 17463691, 'oa'], ['Woolrich', 1690110, 'o'], ['Barbour', 1689327, 'osab'], ['Filson', 17462216, 'oab'],
         ["Lands'End", 22007796, 'o'], ['L.L.Bean', 22368086, 'osb'], ['BEAMS', 18389234, 'osab'], ['Neiman Marcus', 18798299, 'oa']]],
@@ -3613,7 +3577,7 @@
         ['Gravati', 17462425, 's'], ['Paraboot', 17463667, 's'], ['Buttero', 17461612, 'sb']]],
       ['Перчатки и шляпы', [['Hestra', 17462519, 'a'], ['Roeckl', 17463939, 'a'], ['Agnelle', 17461131, 'a'], ['Gallo', 17462341, 'a'], ['Borsalino', 17461540, 'a'], ['Christys', 17461755, 'a']]],
     ],
-    // [слово для поиска, разделы, название]; редкие — проверяются раз в 2 часа (slow)
+    // [слово для поиска, разделы, название] — проверяются отдельной кнопкой «🔎 Слова»
     text: [
       // кожа
       ['salvatore santoro', 'o', 'Salvatore Santoro'], ['s.w.o.r.d', 'osb', 'S.W.O.R.D 6.6.44'], ['elia maurizi', 's', 'Elia Maurizi'], ['matchless', 'o', 'Matchless'],
@@ -3687,16 +3651,81 @@
       for (const letter of kinds) {
         const k = KIND69[letter], url = kindUrl(k, { q });
         if (qIn[k] && qIn[k].has(q)) continue;
-        // первая проверка только запоминает выдачу — растягиваем первые проверки на 2 часа, чтобы не встали в очередь разом
-        if (!has(url)) add.push({ name: `${KIND[k].icon} ${title} — ${LABEL69[k]}`, url, ban: banOf(k), slow: true, lastCheckAt: Date.now() - SLOW_EVERY + Math.round(Math.random() * SLOW_EVERY) });
+        if (!has(url)) add.push({ name: `${KIND[k].icon} ${title} — ${LABEL69[k]}`, url, ban: banOf(k) });
       }
     }
     add.forEach((x, i) => list.push({ id: Date.now() + i, seen: [], lastVisit: 0, ...x }));
     if (add.length) save(list);
     GM_setValue('plan69', 'done:' + Date.now() + ':' + add.length);
-    if (add.length) toastMsg(`⭐ Добавлено поисков из памятки: ${add.length} (${add.filter((x) => !x.slow).length} по бренду, ${add.filter((x) => x.slow).length} по слову — их проверяю раз в 2 часа).`);
+    if (add.length) toastMsg(`⭐ Добавлено поисков из памятки: ${add.length} (${add.filter((x) => !isTextSearch(x)).length} по бренду, ${add.filter(isTextSearch).length} по слову — кнопка «🔎 Слова»).`);
   }
   setTimeout(addMemo69, 5000);
+  // v7.0 — меньше поисков (пользователь, 25.10): поиски по брендам с одинаковыми фильтрами (раздел целиком, те же размеры,
+  // цена, стоп-слова) складываем в группы до 7 кодов — лимит Авито. Поиск берём целиком (у Armani в одном поиске 6 кодов),
+  // поэтому название и коды не расходятся. Подразделы (джинсы), виды обуви, поиски по слову не трогаем.
+  // Как у объединения поисков (runMerge): «просмотрено» — поровну от каждого, лента и журнал переходят к новому поиску;
+  // дата «проверено до» — самая ранняя, чтобы не потерять то, что вышло между проверками старых поисков.
+  const GROUP_LABEL = { '👕': 'Одежда', '👟': 'Обувь', '👞': 'Классика', '🕶': 'Аксессуары', '👜': 'Сумки' };
+  async function repack70() {
+    if (GM_getValue('plan70', '') || mergeRunning || feedRunning) return;
+    const list = load(), buckets = new Map();
+    for (const s of list) {
+      const k = kindKeyOf(s), p = fOf(s.url);
+      if (!KIND[k] || !p) continue;
+      const u = new URL(s.url), ids = [...new Set(brandIdsOf(s.url))];
+      if (u.searchParams.get('q') || !ids.length || ids.length > 7) continue;
+      const sec = catPath(k), base = pathHasBrand(s.url) ? u.pathname.slice(0, u.pathname.lastIndexOf('/')) : u.pathname;
+      if (base !== sec && base !== sec.slice(0, sec.lastIndexOf('-'))) continue; // только раздел целиком
+      const icon = (s.name.match(/^(👕|👟|👞|🕶|👜)/u) || [KIND[k].icon])[0];
+      const key = [k, icon, JSON.stringify(p.singles.filter(([x]) => x !== P_BRAND).sort()), JSON.stringify(p.multi.filter(([x]) => x !== P_BRAND).sort()),
+        JSON.stringify(p.json), [...u.searchParams].filter(([n]) => n !== 'f' && n !== 's').map((x) => x.join('=')).sort().join('&'), JSON.stringify([...(s.ban || [])].sort())].join('|');
+      if (!buckets.has(key)) buckets.set(key, { k, icon, p, rest: u.search, units: [] });
+      buckets.get(key).units.push({ s, ids, names: searchBrandNames(s.name) });
+    }
+    const repl = [];
+    for (const b of buckets.values()) {
+      const bins = [];
+      for (const un of [...b.units].sort((x, y) => y.ids.length - x.ids.length)) { // первый подходящий, крупные первыми
+        const bin = bins.find((x) => x.n + un.ids.length <= 7);
+        if (bin) { bin.units.push(un); bin.n += un.ids.length; } else bins.push({ units: [un], n: un.ids.length });
+      }
+      if (bins.length >= b.units.length) continue; // сократить нечего
+      repl.push({ b, bins: bins.filter((x) => x.units.length > 1) });
+    }
+    if (!repl.length) { GM_setValue('plan70', 'done:0'); return; }
+    await backupTick(true); // точка возврата: 🗂 Копии
+    const feed = loadFeed(), skip = loadSkip(), idMap = {};
+    const before = list.length;
+    let k = 0;
+    for (const { b, bins } of repl) {
+      const label = GROUP_LABEL[b.icon] || KIND[b.k].label;
+      let n = 0;
+      for (const bin of bins) {
+        const mem = bin.units.map((x) => x.s), ids = bin.units.flatMap((x) => x.ids);
+        const f = avfEncode({ singles: b.p.singles.filter(([x]) => x !== P_BRAND), multi: [...b.p.multi.filter(([x]) => x !== P_BRAND), [P_BRAND, ids]], json: b.p.json });
+        const url = ('https://www.avito.ru' + catPath(b.k) + b.rest).replace(/([?&]f=)[^&]*/, '$1' + f);
+        const seen = [], seenSet = new Set();
+        for (let i = 0; seen.length < SEEN_LIMIT && mem.some((x) => (x.seen || [])[i] !== undefined); i++) {
+          for (const x of mem) { const id = (x.seen || [])[i]; if (id !== undefined && !seenSet.has(id)) { seenSet.add(id); seen.push(id); } }
+        }
+        const ts = mem.map((x) => x.lastTs).filter(Boolean), mx = mem.map((x) => x.maxId).filter(Boolean);
+        const ns = { id: Date.now() + (k++), name: `${b.icon} ${label} ${++n}: ${bin.units.flatMap((x) => x.names).join(', ')}`, url, ban: [...(mem[0].ban || [])],
+          seen: seen.slice(0, SEEN_LIMIT), lastVisit: 0, warn: '', rate: +mem.reduce((t, x) => t + (x.rate || 0), 0).toFixed(3),
+          lastCheckAt: Math.min(...mem.map((x) => x.lastCheckAt || 0)) };
+        if (ts.length) { ns.lastTs = Math.min(...ts); ns.maxId = mx.length ? Math.min(...mx) : 0; }
+        mem.forEach((x) => { idMap[x.id] = ns.id; });
+        const at = list.indexOf(mem[0]);
+        for (const x of mem) list.splice(list.indexOf(x), 1);
+        list.splice(Math.min(at, list.length), 0, ns);
+      }
+    }
+    for (const it of Object.values(feed)) if (idMap[it.sid]) it.sid = idMap[it.sid];
+    for (const sk of Object.values(skip)) if (idMap[sk.sid]) sk.sid = idMap[sk.sid];
+    save(list); saveFeed(feed); GM_setValue(SKIP_KEY, JSON.stringify(skip));
+    GM_setValue('plan70', `done:${before}>${list.length}`);
+    toastMsg(`⭐ Поиски по брендам сложены в группы по 7: поисков было ${before}, стало ${list.length}. Копия — в «🗂 Копии».`);
+  }
+  setTimeout(repack70, 5500);
   // Поиск одного бренда Авито отдаёт только по адресу с брендом в пути: …/dzhinsy/levi_sr-<код с брендом>, бренд
   // одиночным параметром и в f. Любой другой адрес (бренд в f без пути, бренд списком из одного) — пустая заготовка
   // без объявлений, а браузер потом сам переходит на адрес с брендом (скриншот пользователя 20.10: «Levi's — джинсы»).
