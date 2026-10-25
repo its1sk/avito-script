@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Avito — скрыть продавцов + мои поиски
 // @namespace    avito-seller-blocker
-// @version      7.0
+// @version      7.1
 // @description  Скрытие продавцов, сохранённые поиски, стоп-слова, лента новых объявлений по всем поискам
 // @match        https://www.avito.ru/*
 // @match        https://m.avito.ru/*
@@ -1335,7 +1335,8 @@
 
   let feedRunning = false;
   const CONCURRENCY = 3;
-  const MAX_PAGES = 8; // объединённые поиски (по 7 брендов) после перерыва могут набрать несколько страниц новых                // дочитываем до 3 страниц, если все объявления на странице новые              // сколько поисков проверяем одновременно
+  const MAX_PAGES = 8; // дочитываем страницы, пока вся страница новая: группы по 7 брендов после перерыва набирают несколько
+  const MAX_PAGES_RW = 15; // «⏪ За период»: до ~750 объявлений на поиск
   const LOCK_KEY = 'feedLock';        // чтобы две вкладки не проверяли одновременно
 
   // быстрый разбор: вырезаем из страницы только карточки, а не строим DOM всех 2 МБ
@@ -1464,8 +1465,9 @@
       return { found: 0 };
     }
     // если вся страница новая — новых могло быть больше 50: дочитываем 2-ю и 3-ю страницы
-    for (let page = 2; hasTs && s.lastTs && page <= MAX_PAGES; page++) {
-      const freshCnt = items.filter((x) => x.ts > s.lastTs).length;
+    const rw = S.rewind, edge = rw ? rw.border : s.lastTs; // «⏪ За период» дочитывает до начала периода
+    for (let page = 2; hasTs && edge && page <= (rw ? MAX_PAGES_RW : MAX_PAGES); page++) {
+      const freshCnt = items.filter((x) => x.ts > edge).length;
       if (items.length < 30 || freshCnt < items.length - 3) break; // 3 — на закреплённые платные
       const pu = new URL(location.origin + u.pathname + u.search);
       pu.searchParams.set('p', String(page));
@@ -1489,7 +1491,7 @@
     };
 
     // первая проверка: только запоминаем, что уже есть
-    if ((hasTs && !cs.lastTs) || (!hasTs && !(cs.seen && cs.seen.length))) {
+    if (!rw && ((hasTs && !cs.lastTs) || (!hasTs && !(cs.seen && cs.seen.length)))) {
       remember(items.map((x) => x.id));
       if (hasTs) { set('lastTs', maxTs); set('maxId', Math.max(cs.maxId || 0, maxId)); }
       return { found: 0 };
@@ -1501,8 +1503,20 @@
     for (const it of items) {
       const fv = S.favs[it.id]; // отложенное попалось в выдаче — запоминаем новую цену
       if (fv && it.price && fv.price !== it.price) { fv.price = it.price; S.favPrice.set(it.id, it.price); }
-      if (seen.has(it.id)) continue;
+      // «⏪ За период»: всё, что вышло за период, снова в «Новые» — и уже показанное, и запомненное как «просмотрено»
+      const inWin = !!rw && hasTs && it.ts > rw.border;
+      if (seen.has(it.id) && !inWin) continue;
       const prev = feed[it.id];
+      if (inWin && (!prev || prev.shownAt || prev.seenAt || seen.has(it.id))) {
+        if (prev && prev.seenAt && !rw.hidden) continue; // скрытое кнопкой «✓ Скрыть» — только если попросили
+        const sid = prev ? prev.sid : cs.id;
+        feed[it.id] = { ...(prev || {}), ...it, sid, found: prev ? prev.found : Date.now(), shownAt: undefined, seenAt: undefined,
+          fullDesc: prev && prev.fullDesc, descAt: prev && prev.descAt, oldPrice: prev && prev.oldPrice };
+        S.touched.add(it.id); S.unhide.add(it.id);
+        S.patch(sid).seenDel.add(it.id); if (sid !== cs.id) S.patch(cs.id).seenDel.add(it.id);
+        if (!feedHideReason(feed[it.id], S.mem.get(sid) || cs, ctx) && !palVerdict(feed[it.id], ctx, cs)) found++;
+        continue;
+      }
       if (prev) { // уже в ленте — освежаем данные (цена могла измениться), не трогая отметки
         if (prev.seenAt) continue; // вы его уже скрыли
         let { sid } = prev;
@@ -1548,24 +1562,27 @@
     const patches = new Map();
     const feed = loadFeed();
     const S = {
-      mem, feed, touched: new Set(), skips: [], favs: loadFavs(), favPrice: new Map(),
-      patch: (id) => { if (!patches.has(id)) patches.set(id, { fields: {}, seenAdd: new Set() }); return patches.get(id); },
+      mem, feed, touched: new Set(), unhide: new Set(), skips: [], favs: loadFavs(), favPrice: new Map(), rewind: null,
+      patch: (id) => { if (!patches.has(id)) patches.set(id, { fields: {}, seenAdd: new Set(), seenDel: new Set() }); return patches.get(id); },
       flush() {
         if (S.touched.size) {
           const f = loadFeed(); // свежая копия: пока шла проверка, вы могли что-то отметить в ленте
           for (const id of S.touched) {
             const mine = feed[id]; if (!mine) continue;
             const cur = f[id];
-            f[id] = cur ? { ...mine, shownAt: cur.shownAt || mine.shownAt, seenAt: cur.seenAt || mine.seenAt, fullDesc: cur.fullDesc || mine.fullDesc, descAt: cur.descAt || mine.descAt } : mine;
+            const un = S.unhide.has(id); // «⏪ За период» снимает отметки «показано»/«скрыто»
+            f[id] = cur ? { ...mine, shownAt: un ? mine.shownAt : cur.shownAt || mine.shownAt, seenAt: un ? mine.seenAt : cur.seenAt || mine.seenAt,
+              fullDesc: cur.fullDesc || mine.fullDesc, descAt: cur.descAt || mine.descAt } : mine;
             feed[id] = f[id];
           }
-          saveFeed(f); S.touched.clear();
+          saveFeed(f); S.touched.clear(); S.unhide.clear();
         }
         if (patches.size) {
           const list = load(); // свежая копия: отметки «просмотрено» из ленты не затираем, а дополняем
           for (const x of list) {
             const p = patches.get(x.id); if (!p) continue;
             Object.assign(x, p.fields);
+            if (p.seenDel.size) x.seen = (x.seen || []).filter((id) => !p.seenDel.has(id));
             if (p.seenAdd.size) x.seen = [...new Set([...p.seenAdd, ...(x.seen || [])])].slice(0, SEEN_LIMIT);
           }
           save(list); patches.clear();
@@ -1592,7 +1609,7 @@
   // Чистим ленту от лишнего. Непросмотренные объявления НЕ трогаем (раньше обрезали всё подряд до 400 —
   // и после долгого перерыва большая часть новых пропадала). Режем только просмотренные и скрытые фильтрами.
   // номер версии кода: вкладка со старой версией, увидев более новую, перестаёт проверять в фоне
-  const CODE_VER = 70;
+  const CODE_VER = 71;
   if (+GM_getValue('codeVer', 0) < CODE_VER) GM_setValue('codeVer', CODE_VER);
   const PENDING_MAX = 5000; // аварийный потолок для непросмотренных
   function trimFeed(feed) {
@@ -1611,36 +1628,11 @@
     if (pending.length > PENDING_MAX) pending.sort(byFound).slice(PENDING_MAX).forEach((id) => delete feed[id]);
   }
 
-  // «⏪ Вернуть пропавшие»: откатываем отметку «проверено до …» на N часов назад и проверяем всё заново.
-  // Просмотренное (кнопкой «✓ Скрыть» и т.п.) не вернётся — оно в списке просмотренных; то, что уже в ленте, не задвоится.
-  // Важно: проверка, увидев в выдаче объявление с датой старше отметки, сама кладёт его в «просмотренные».
-  // Поэтому пропавшие объявления после следующей проверки оказывались там, и простой откат их не находил.
-  // Такие объявления записаны в журнал (why: 'old') — их и вынимаем из «просмотренных».
-  // Объявления, которые вы скрыли сами или видели на сайте, в этот журнал не попадают и остаются скрытыми.
-  function rewindSearches(hours) {
-    const border = Date.now() - hours * 3600000;
-    const list = load();
-    const feed = loadFeed();
-    const skip = loadSkip();
-    const back = {}; // sid → Set(id), вернуть из «просмотренных»
-    for (const [id, sk] of Object.entries(skip)) {
-      if (sk.why !== 'old' || !(sk.ts > border) || feed[id]) continue;
-      (back[sk.sid] = back[sk.sid] || new Set()).add(id);
-      delete skip[id];
-    }
-    let n = 0, freed = 0;
-    for (const s of list) {
-      if (s.lastTs && s.lastTs > border) { s.lastTs = border; n++; }
-      const b = back[s.id];
-      if (b && s.seen) { const before = s.seen.length; s.seen = s.seen.filter((id) => !b.has(id)); freed += before - s.seen.length; }
-    }
-    save(list);
-    GM_setValue(SKIP_KEY, JSON.stringify(skip));
-    return { n, freed };
-  }
-
+  // «⏪ За период» (v7.1): checkAll(…, rewind = { border, hidden }) — без отката «проверено до»: в checkOne всё, что вышло
+  // после border, снова идёт в «Новые» (и показанное, и «просмотренное», и при hidden — скрытое ✓), страницы дочитываются
+  // до border (MAX_PAGES_RW). Отметки снимаются через S.unhide и patch.seenDel.
   // limit — проверить только столько поисков, которые дольше всех не проверялись (по кругу)
-  async function checkAll(onProgress, onPartial, limit = 0, pickIds = null, mode = null) {
+  async function checkAll(onProgress, onPartial, limit = 0, pickIds = null, mode = null, rewind = null) {
     if (feedRunning) return null;
     if (+GM_getValue('codeVer', 0) > CODE_VER) return { found: 0, problem: 'Скрипт обновился — обновите эту страницу.', busy: true };
     const lock = +GM_getValue(LOCK_KEY, 0);
@@ -1656,6 +1648,7 @@
     if (mode) list = list.filter((x) => isTextSearch(x) === (mode === 'text'));
     if (limit && list.length > limit) list = list.slice(0, limit);
     const S = newCheckState();
+    S.rewind = rewind; // { border, hidden } — «⏪ За период»
     const flushTimer = setInterval(() => { try { S.flush(); } catch { /* попробуем в следующий раз */ } }, 3000);
     let found = 0, done = 0, problem = '', stop = false;
     const queue = [...list];
@@ -2304,21 +2297,34 @@
     const why = el('button', 'ams-btn', '🔍 Почему нет?');
     why.title = 'Вставьте ссылку или номер объявления — скрипт скажет, почему его нет в ленте';
     why.onclick = () => whyMissing(draw);
-    const back = el('button', 'ams-btn', '⏪ Вернуть пропавшие');
-    back.title = 'Перепроверить все поиски за последние часы и вернуть в ленту то, что потерялось';
+    const back = el('button', 'ams-btn', '⏪ За период');
+    back.title = 'Перепроверить поиски за указанные часы и показать всё подходящее, что вышло за это время';
     back.onclick = () => {
       if (feedRunning) { alert('Сейчас идёт проверка — дождитесь, пока закончится.'); return; }
-      const raw = prompt('За сколько последних часов перепроверить все поиски?\n\n' +
-        'Вернётся всё, что вы ещё не смотрели. То, что вы уже скрыли кнопкой «✓ Скрыть», не вернётся, ' +
-        'то, что уже в ленте, не задвоится.', '14');
-      const hrs = parseFloat(String(raw || '').replace(',', '.'));
-      if (!(hrs > 0)) return;
-      const { n, freed } = rewindSearches(Math.min(hrs, 72));
-      if (!n && !freed) { alert('Нечего перепроверять — все поиски и так проверены не позже этого времени.'); return; }
-      alert(freed
-        ? `Нашёл ${freed} объявл., которые пропали, не будучи показанными. Сейчас перепроверю все поиски — они вернутся в «Новые».`
-        : 'В журнале нет пропавших объявлений за это время. Всё равно перепроверю поиски — вернётся то, что ещё есть в выдаче.');
-      run(0);
+      modal('⏪ Объявления за период', (box, close) => {
+        box.append(el('div', null, 'Скрипт перепроверит поиски и покажет в «Новых» всё подходящее, что вышло за это время, — ' +
+          'и то, что уже показывалось. Стоп-слова, скрытые продавцы, размеры и «новое с биркой» работают как обычно.'));
+        const row = el('div'); row.style.cssText = 'display:flex;gap:6px;align-items:center;margin-top:10px;flex-wrap:wrap';
+        const inp = el('input'); inp.type = 'number'; inp.min = '1'; inp.max = '168'; inp.value = '24';
+        inp.style.cssText = 'width:70px;border:1px solid #ddd;border-radius:8px;padding:6px;font:14px Arial';
+        row.append(el('span', null, 'За последние'), inp, el('span', null, 'ч.'));
+        for (const h of [6, 12, 24, 48, 72]) { const b = el('button', 'ams-btn', h + ' ч'); b.onclick = () => { inp.value = String(h); }; row.append(b); }
+        const hl = el('label'); hl.style.cssText = 'display:flex;gap:8px;align-items:center;margin-top:10px;cursor:pointer';
+        const hid = el('input'); hid.type = 'checkbox';
+        hl.append(hid, el('span', null, 'Вернуть и то, что я скрыл кнопкой «✓ Скрыть»'));
+        const note = el('div', null, 'Чем больше часов, тем дольше: у поиска дочитывается до 15 страниц.');
+        note.style.cssText = 'color:#777;font-size:12px;margin-top:6px';
+        const go = (mode) => {
+          const hrs = Math.min(168, parseFloat(String(inp.value).replace(',', '.')));
+          if (!(hrs > 0)) { inp.focus(); return; }
+          close();
+          run(0, mode, { border: Date.now() - hrs * 3600000, hidden: hid.checked, hrs });
+        };
+        const bB = mbtn('⏪ Бренды', true); bB.onclick = () => go('brand');
+        const bT = mbtn(`⏪ Слова (${loadRO().filter(isTextSearch).length})`); bT.onclick = () => go('text');
+        const cancel = mbtn('Отмена'); cancel.onclick = close;
+        box.append(row, hl, note, bB, bT, cancel);
+      });
     };
     const optBtn = el('button', 'ams-btn', '⚙️'); optBtn.title = 'Настройки: уведомления, проверка в фоне, клавиши';
     optBtn.onclick = openFeedOpts;
@@ -2720,15 +2726,16 @@
       }
     }
 
-    async function run(limit = 0, mode = 'brand') {
-      const btn = mode === 'text' ? refreshText : refresh, label = btn.textContent;
-      refresh.disabled = refreshText.disabled = true; btn.textContent = '⏳ Проверяю…';
-      const p = checkAll(setStatus, drawSoon, typeof limit === 'number' ? limit : 0, null, mode);
+    async function run(limit = 0, mode = 'brand', rewind = null) {
+      const btn = rewind ? back : mode === 'text' ? refreshText : refresh, label = btn.textContent;
+      refresh.disabled = refreshText.disabled = back.disabled = true; btn.textContent = '⏳ Проверяю…';
+      const p = checkAll(setStatus, drawSoon, typeof limit === 'number' ? limit : 0, null, mode, rewind);
       if (!curShown.length) draw(); // пустая лента — пишем «Ищу новые…»
       const r = await p;
-      refresh.disabled = refreshText.disabled = false; btn.textContent = label;
+      refresh.disabled = refreshText.disabled = back.disabled = false; btn.textContent = label;
       if (!r) { setStatus('Проверка уже идёт — найденное появится само.'); return; }
-      setStatus(r.problem ? '⚠️ ' + r.problem : r.busy ? 'Проверка уже идёт в другой вкладке' : null);
+      setStatus(r.problem ? '⚠️ ' + r.problem : r.busy ? 'Проверка уже идёт в другой вкладке'
+        : rewind ? `⏪ За ${rewind.hrs} ч (${mode === 'text' ? 'слова' : 'бренды'}): в «Новых» ${r.found} объявл.` : null);
       liveUpdate();
       descRun(); // описания новых — для детектора пали
     }
