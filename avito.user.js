@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Avito — скрыть продавцов + мои поиски
 // @namespace    avito-seller-blocker
-// @version      7.1
+// @version      7.2
 // @description  Скрытие продавцов, сохранённые поиски, стоп-слова, лента новых объявлений по всем поискам
 // @match        https://www.avito.ru/*
 // @match        https://m.avito.ru/*
@@ -969,15 +969,26 @@
     }));
     return words.size ? [...words] : null;
   }
+  const hasBrandWord = (words, raw) => { const text = ' ' + brandKey(raw) + ' '; return words.some((w) => text.includes(' ' + w + ' ')); };
+  // Поиск по слову (бренда нет в фильтре Авито): Авито ищет и в полном описании, а в выдаче его нет или только начало
+  // (~270 знаков, примерно у половины). Слова нет в названии и в начале описания — качаем полное описание (descRun):
+  // 'yes' — слово есть, 'wait' — описание ещё не скачано (показываем с пометкой), 'unknown' — скачать не вышло
+  // (показываем), 'no' — нет и в полном описании: Авито подмешал лишнее (на «momotaro» — G-Star), скрываем.
+  function textWordState(it, search) {
+    if (!search || !isTextSearch(search)) return 'yes';
+    const words = searchBrandWords(search);
+    if (!words || hasBrandWord(words, it.title + ' ' + (it.params || '') + ' ' + (it.desc || ''))) return 'yes';
+    if (!it.descAt) return 'wait';
+    if (!it.fullDesc) return 'unknown';
+    return hasBrandWord(words, it.fullDesc) ? 'yes' : 'no';
+  }
   // true — в названии и параметрах нет ни одного бренда этого поиска
   function brandMismatch(it, search) {
+    if (search && isTextSearch(search)) return textWordState(it, search) === 'no';
     if (!it.params) return false;
     const words = searchBrandWords(search);
     if (!words) return false;
-    // в поиске по слову (Dolani, Momotaro) бренда нет в фильтре Авито — он бывает только в описании
-    const byText = search && /[?&]q=/.test(search.url || '');
-    const text = ' ' + brandKey(it.title + ' ' + it.params + (byText ? ' ' + (it.desc || '') : '')) + ' ';
-    return !words.some((w) => text.includes(' ' + w + ' '));
+    return !hasBrandWord(words, it.title + ' ' + it.params);
   }
 
   // ---------------- детектор «китайской пали» ----------------
@@ -1609,7 +1620,7 @@
   // Чистим ленту от лишнего. Непросмотренные объявления НЕ трогаем (раньше обрезали всё подряд до 400 —
   // и после долгого перерыва большая часть новых пропадала). Режем только просмотренные и скрытые фильтрами.
   // номер версии кода: вкладка со старой версией, увидев более новую, перестаёт проверять в фоне
-  const CODE_VER = 71;
+  const CODE_VER = 72;
   if (+GM_getValue('codeVer', 0) < CODE_VER) GM_setValue('codeVer', CODE_VER);
   const PENDING_MAX = 5000; // аварийный потолок для непросмотренных
   function trimFeed(feed) {
@@ -1742,11 +1753,13 @@
     const shopLike = (it) => (it.sellerName && (PAL_SHOPNAME.test(norm(it.sellerName)) || /^[A-Z0-9 &._'|-]{3,}$/.test(it.sellerName.trim()))) ||
       (it.closed || 0) >= 300 || ((db[it.sellerKey] || {}).ids || []).length >= 5;
     return pendingItems().filter((it) => {
-      if (it.descAt || !it.url || (it.desc || '').length >= 250) return false;
+      if (it.descAt || !it.url) return false;
+      if (it.tw === 'wait') return true; // поиск по слову: слова нет в названии — есть ли оно в описании
+      if ((it.desc || '').length >= 250) return false;
       if (missed[it.id] || it.pv) return true;
       if ((it.found || 0) <= border || (it.sellerKey && okSellers[it.sellerKey])) return false;
       return /^новое/.test(norm(String(it.params || '').split('·')[0]).trim()) || shopLike(it);
-    }).sort((a, b) => (missed[b.id] ? 1 : 0) - (missed[a.id] ? 1 : 0) || (a.pv ? 1 : 0) - (b.pv ? 1 : 0) ||
+    }).sort((a, b) => (b.tw === 'wait' ? 1 : 0) - (a.tw === 'wait' ? 1 : 0) || (missed[b.id] ? 1 : 0) - (missed[a.id] ? 1 : 0) || (a.pv ? 1 : 0) - (b.pv ? 1 : 0) ||
       (a.shownAt ? 1 : 0) - (b.shownAt ? 1 : 0)); // ваши отметки → обычная лента (сначала невиденное) → вкладка пали
   }
 
@@ -2157,7 +2170,7 @@
       if (!seenSets[s.id]) seenSets[s.id] = new Set(s.seen || []);
       if (it.seenAt || seenSets[s.id].has(it.id)) continue;
       if (feedHideReason(it, s, ctx)) continue;
-      out.push({ ...it, sname: s.name, pv: palVerdict(it, ctx, s) });
+      out.push({ ...it, sname: s.name, pv: palVerdict(it, ctx, s), tw: textWordState(it, s) });
     }
     return out.sort((a, b) => (b.ts || b.found) - (a.ts || a.found));
   }
@@ -2236,7 +2249,9 @@
     if (insoleMismatch(it, search)) return 'в описании указана другая длина стельки';
     const sz = sizeMismatch(it, search);
     if (sz) return `не ваш размер (${sz}) — Авито подмешал его мимо фильтра`;
-    if (brandMismatch(it, search)) return `бренд не совпадает с поиском (${it.params}) — Авито подмешал его мимо фильтра`;
+    if (brandMismatch(it, search)) return isTextSearch(search)
+      ? `слова из поиска нет ни в названии, ни в полном описании — Авито подмешал лишнее`
+      : `бренд не совпадает с поиском (${it.params}) — Авито подмешал его мимо фильтра`;
     return null;
   }
 
@@ -2591,7 +2606,7 @@
         pr.append(el('span', 'amf-old', `${it.oldPrice > it.price ? '📉' : '📈'} было ${fmtPrice(it.oldPrice)}`));
       }
       body.append(t, pr,
-        el('div', 'amf-meta', [it.ts ? '🕒 ' + fmtAge(it.ts) : '', it.bumped ? '♻️ перевыложено' : '', it.city, it.sellerName, it.sname ? '🔎 ' + it.sname : ''].filter(Boolean).join(' · ')));
+        el('div', 'amf-meta', [it.ts ? '🕒 ' + fmtAge(it.ts) : '', it.bumped ? '♻️ перевыложено' : '', it.tw === 'wait' ? '📄 проверяю описание' : '', it.city, it.sellerName, it.sname ? '🔎 ' + it.sname : ''].filter(Boolean).join(' · ')));
       if (it.params) body.append(el('div', 'amf-meta', '🏷 ' + it.params));
       if (it.favAt && tab === 'fav') body.append(el('div', 'amf-meta', '❤️ отложено ' + fmtWhen(it.favAt) + (it.priceAt ? ' · цена обновлена ' + fmtWhen(it.priceAt) : '')));
       if (it.pv) body.append(el('div', 'amf-pal', '🇨🇳 ' + it.pv.why.join(' · ')));
