@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Avito — скрыть продавцов + мои поиски
 // @namespace    avito-seller-blocker
-// @version      7.5
+// @version      7.6
 // @description  Скрытие продавцов, сохранённые поиски, стоп-слова, лента новых объявлений по всем поискам
 // @match        https://www.avito.ru/*
 // @match        https://m.avito.ru/*
@@ -1380,6 +1380,22 @@
     return -1;
   }
 
+  // Цена, которую видит покупатель (разведка пользователя 26.10): priceDetailed.value — БЕЗ скидки, а цена со скидкой —
+  // в iva.PriceStep: компонент 'price' (payload.priceDetailed.value), 'discount' ({percent, old_string}), 'saleIcon'
+  // (tooltip.text «Скидка до 31 декабря»). Фильтр Авито «Цена до» (pmax) считает по цене СО скидкой.
+  // priceWithoutDiscount / discountPercent в выдаче всегда null — не используем.
+  function ivaPrice(o) {
+    const base = (o.priceDetailed && +o.priceDetailed.value) || 0;
+    const steps = (o.iva && o.iva.PriceStep) || [];
+    const comp = (n) => steps.find((x) => x && x.componentData && x.componentData.component === n);
+    const pv = comp('price') && comp('price').payload && comp('price').payload.priceDetailed;
+    const d = comp('discount') && comp('discount').payload;
+    const ic = comp('saleIcon') && comp('saleIcon').payload;
+    const now = (pv && +pv.value) || base;
+    const old = d && d.old_string ? +String(d.old_string).replace(/\D/g, '') || base : now !== base ? base : 0;
+    return { now, old: old > now ? old : 0, pct: d && d.percent ? +d.percent : old > now ? Math.round((1 - now / old) * 100) : 0,
+      until: (ic && ic.tooltip && ic.tooltip.text) || '', base };
+  }
   // объект объявления из выдачи → объявление ленты (null — не объявление)
   function toItem(o, extra) {
     if (!o || !o.urlPath || !o.sortTimeStamp || o.id == null) return null;
@@ -1394,11 +1410,13 @@
     const alt = (o.gallery && o.gallery.imageAlt) || '';
     const params = (((o.iva && o.iva.FashionParamsStep) || []).map((x) => x && x.payload && x.payload.value).filter(Boolean)).join(' · ');
     const closed = +((String(o.closedItemsText || '').replace(/\s/g, '').match(/\d+/) || [0])[0]);
+    const pz = ivaPrice(o);
     return {
       id,
       title: o.title || '',
       url: 'https://www.avito.ru' + String(o.urlPath).split('?')[0],
-      price: (o.priceDetailed && +o.priceDetailed.value) || 0,
+      price: pz.now, // со скидкой — как видит покупатель
+      saleOld: pz.old || undefined, salePct: pz.pct || undefined, saleUntil: pz.until || undefined, priceBase: pz.base,
       img: im['416x416'] || im['472x472'] || Object.values(im)[0] || '',
       city: (o.addressDetailed && o.addressDetailed.locationName) || (alt.includes(',') ? alt.split(',').pop().trim() : ''),
       desc: String(o.description || '').slice(0, 300),
@@ -1408,7 +1426,7 @@
       sellerKey, sellerName,
       closed,
       reserved: !!o.isReserved, // «Забронировано» — купить пока нельзя
-      pal: palFeaturesMemo(id, { title: o.title || '', desc: String(o.description || ''), params, sellerName, closed, price: (o.priceDetailed && +o.priceDetailed.value) || 0 }),
+      pal: palFeaturesMemo(id, { title: o.title || '', desc: String(o.description || ''), params, sellerName, closed, price: pz.now }),
       extra,
     };
   }
@@ -1515,7 +1533,8 @@
       if (got !== want) bad.push(`фильтр ${id}: «${got}» вместо «${want}»`);
     }
     const items = j.catalog.items.filter((i) => i && (i.type || 'item') === 'item');
-    if (q.pmax) { const over = items.filter((i) => ((i.priceDetailed && i.priceDetailed.value) || 0) > q.pmax).length; if (over > 2) bad.push(`${over} объявл. дороже ${q.pmax}`); }
+    if (q.pmax) { const over = items.filter((i) => ivaPrice(i).now > q.pmax).length; // Авито фильтрует по цене со скидкой
+      if (over > 2) bad.push(`${over} объявл. дороже ${q.pmax}`); }
     const alien = items.filter((i) => i.category && i.category.id !== 27 && i.category.rootId !== 5).length;
     if (alien > 2) bad.push(`${alien} объявл. не из раздела вещей`);
     if (prevIds && items.length) { const rp = items.filter((i) => prevIds.has(String(i.id))).length; if (rp > items.length / 2) bad.push(`страница повторяет предыдущую (${rp} из ${items.length})`); }
@@ -1636,7 +1655,7 @@
     let found = 0;
     for (const it of items) {
       const fv = S.favs[it.id]; // отложенное попалось в выдаче — запоминаем новую цену
-      if (fv && it.price && fv.price !== it.price) { fv.price = it.price; S.favPrice.set(it.id, it.price); }
+      if (fv && it.price && fv.price !== it.price) { const quiet = fv.price === it.priceBase; fv.price = it.price; S.favPrice.set(it.id, [it.price, quiet]); }
       // «⏪ За период»: всё, что вышло за период, снова в «Новые» — и уже показанное, и запомненное как «просмотрено»
       const inWin = !!rw && hasTs && it.ts > rw.border;
       if (seen.has(it.id) && !inWin) continue;
@@ -1662,11 +1681,12 @@
           if ((why === 'brand' || why === 'size' || why === 'gone') && !feedHideReason(it, cs, ctx)) sid = cs.id;
         }
         // ничего не поменялось — ленту не переписываем (раньше каждая проверка заново сохраняла её целиком)
-        if (sid === prev.sid && it.price === prev.price && it.ts === prev.ts && it.title === prev.title && it.params === prev.params &&
+        if (sid === prev.sid && it.price === prev.price && it.salePct === prev.salePct && it.ts === prev.ts && it.title === prev.title && it.params === prev.params &&
           it.desc === prev.desc && it.img === prev.img && it.sellerKey === prev.sellerKey && it.sellerName === prev.sellerName && it.closed === prev.closed && !!it.reserved === !!prev.reserved) continue;
         // цена поменялась — помним первую, чтобы показать «📉 было …»
         let oldPrice = prev.oldPrice;
-        if (prev.price && it.price && it.price !== prev.price) oldPrice = prev.oldPrice || prev.price;
+        // до v7.6 в ленте лежала цена без скидки (priceBase) — это не «подешевело», скидку показываем отдельно
+        if (prev.price && it.price && it.price !== prev.price && prev.price !== it.priceBase) oldPrice = prev.oldPrice || prev.price;
         if (oldPrice === it.price) oldPrice = undefined;
         feed[it.id] = { ...it, sid, found: prev.found, shownAt: prev.shownAt, bumped: prev.bumped, fullDesc: prev.fullDesc, descAt: prev.descAt, oldPrice };
         S.touched.add(it.id);
@@ -1723,9 +1743,9 @@
         }
         if (S.favPrice.size) {
           const fv = loadFavs(); let ch = false;
-          for (const [id, p] of S.favPrice) {
+          for (const [id, [p, quiet]] of S.favPrice) {
             const x = fv[id]; if (!x || x.price === p) continue;
-            if (!x.oldPrice) x.oldPrice = x.price;
+            if (!x.oldPrice && !quiet) x.oldPrice = x.price; // quiet — раньше стояла цена без скидки, это не изменение цены
             x.price = p; x.priceAt = Date.now(); ch = true;
             if (x.oldPrice === p) delete x.oldPrice;
           }
@@ -1743,7 +1763,7 @@
   // Чистим ленту от лишнего. Непросмотренные объявления НЕ трогаем (раньше обрезали всё подряд до 400 —
   // и после долгого перерыва большая часть новых пропадала). Режем только просмотренные и скрытые фильтрами.
   // номер версии кода: вкладка со старой версией, увидев более новую, перестаёт проверять в фоне
-  const CODE_VER = 75;
+  const CODE_VER = 76;
   if (+GM_getValue('codeVer', 0) < CODE_VER) GM_setValue('codeVer', CODE_VER);
   const PENDING_MAX = 5000; // аварийный потолок для непросмотренных
   function trimFeed(feed) {
@@ -2728,6 +2748,10 @@
       const body = el('div', 'amf-body');
       const t = el('div', 'amf-title', it.title); t.onclick = open;
       const pr = el('div', 'amf-price', fmtPrice(it.price));
+      if (it.saleOld && it.saleOld > it.price) { // скидка продавца: «−45% · без скидки 9 500 ₽ · до 31 декабря»
+        pr.append(el('span', 'amf-old', [`🏷 −${it.salePct || Math.round((1 - it.price / it.saleOld) * 100)}%`, 'без скидки ' + fmtPrice(it.saleOld),
+          String(it.saleUntil || '').replace(/^скидка\s*/i, '')].filter(Boolean).join(' · ')));
+      }
       if (it.oldPrice && it.price && it.oldPrice !== it.price) {
         pr.append(el('span', 'amf-old', `${it.oldPrice > it.price ? '📉' : '📈'} было ${fmtPrice(it.oldPrice)}`));
       }
