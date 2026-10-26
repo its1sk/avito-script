@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Avito — скрыть продавцов + мои поиски
 // @namespace    avito-seller-blocker
-// @version      7.3
+// @version      7.4
 // @description  Скрытие продавцов, сохранённые поиски, стоп-слова, лента новых объявлений по всем поискам
 // @match        https://www.avito.ru/*
 // @match        https://m.avito.ru/*
@@ -1380,12 +1380,64 @@
     return -1;
   }
 
+  // объект объявления из выдачи → объявление ленты (null — не объявление)
+  function toItem(o, extra) {
+    if (!o || !o.urlPath || !o.sortTimeStamp || o.id == null) return null;
+    const id = String(o.id);
+    let sellerKey = '', sellerName = '';
+    for (const step of (o.iva && o.iva.UserInfoStep) || []) {
+      const pr = step && step.payload && step.payload.profile;
+      const mm = pr && pr.link && pr.link.match(SELLER_RE);
+      if (mm) { sellerKey = `${mm[1]}:${mm[2]}`; sellerName = pr.title || ''; break; }
+    }
+    const im = (o.images && o.images[0]) || {};
+    const alt = (o.gallery && o.gallery.imageAlt) || '';
+    const params = (((o.iva && o.iva.FashionParamsStep) || []).map((x) => x && x.payload && x.payload.value).filter(Boolean)).join(' · ');
+    const closed = +((String(o.closedItemsText || '').replace(/\s/g, '').match(/\d+/) || [0])[0]);
+    return {
+      id,
+      title: o.title || '',
+      url: 'https://www.avito.ru' + String(o.urlPath).split('?')[0],
+      price: (o.priceDetailed && +o.priceDetailed.value) || 0,
+      img: im['416x416'] || im['472x472'] || Object.values(im)[0] || '',
+      city: (o.addressDetailed && o.addressDetailed.locationName) || (alt.includes(',') ? alt.split(',').pop().trim() : ''),
+      desc: String(o.description || '').slice(0, 300),
+      // строка «Отличное · 48 (M) · Brunello Cucinelli» — в ней всегда есть бренд
+      params,
+      ts: +o.sortTimeStamp,
+      sellerKey, sellerName,
+      closed,
+      reserved: !!o.isReserved, // «Забронировано» — купить пока нельзя
+      pal: palFeaturesMemo(id, { title: o.title || '', desc: String(o.description || ''), params, sellerName, closed, price: (o.priceDetailed && +o.priceDetailed.value) || 0 }),
+      extra,
+    };
+  }
+  // Каталог выдачи — и в JSON (/web/1/js/items), и в HTML страницы: catalog.items — выдача поиска, catalog.extraBlockItems —
+  // «есть в других городах». В catalog.items есть ещё карусель рекомендаций (type: 'itemsCarouselWidget', ~32 случайных
+  // вещи не по фильтрам, ~1,2 МБ) — до v7.4 она попадала в проверку как выдача (файл страниц 26.10: 82 объявления
+  // вместо 50; из-за неё JSON и страница совпадали только на 34% при полностью одинаковой выдаче).
+  function catalogOf(text) {
+    for (let i = text.indexOf('"catalog":{'); i >= 0; i = text.indexOf('"catalog":{', i + 10)) {
+      const end = spanAt(text, i + 10);
+      if (end < 0) continue;
+      try { const c = JSON.parse(text.slice(i + 10, end)); if (c && Array.isArray(c.items)) return c; } catch { /* дальше */ }
+    }
+    return null;
+  }
   function parseState(html) {
+    const out = new Map();
+    const put = (o, extra) => { const it = toItem(o, extra); if (it && !out.has(it.id)) out.set(it.id, it); };
+    const cat = catalogOf(html);
+    if (cat) {
+      for (const o of cat.items) if (o && (!o.type || o.type === 'item')) put(o, false);
+      for (const o of cat.extraBlockItems || []) if (o && (!o.type || o.type === 'item')) put(o, true);
+      return [...out.values()];
+    }
+    // запасной путь — все объекты объявлений на странице (если Авито поменяет устройство каталога)
     let exFrom = -1, exTo = -1;
     const exKey = html.indexOf('"extraBlockItems":[');
     if (exKey >= 0) { exFrom = exKey + 18; exTo = spanAt(html, exFrom); }
     const re = /\{"id":(\d+),"categoryId"/g;
-    const out = new Map();
     let m;
     while ((m = re.exec(html))) {
       const end = spanAt(html, m.index);
@@ -1393,35 +1445,7 @@
       let o;
       try { o = JSON.parse(html.slice(m.index, end)); } catch { continue; }
       re.lastIndex = end;
-      const id = String(o.id);
-      if (!o.urlPath || !o.sortTimeStamp || out.has(id)) continue;
-      let sellerKey = '', sellerName = '';
-      for (const step of (o.iva && o.iva.UserInfoStep) || []) {
-        const pr = step && step.payload && step.payload.profile;
-        const mm = pr && pr.link && pr.link.match(SELLER_RE);
-        if (mm) { sellerKey = `${mm[1]}:${mm[2]}`; sellerName = pr.title || ''; break; }
-      }
-      const im = (o.images && o.images[0]) || {};
-      const alt = (o.gallery && o.gallery.imageAlt) || '';
-      const params = (((o.iva && o.iva.FashionParamsStep) || []).map((x) => x && x.payload && x.payload.value).filter(Boolean)).join(' · ');
-      const closed = +((String(o.closedItemsText || '').replace(/\s/g, '').match(/\d+/) || [0])[0]);
-      out.set(id, {
-        id,
-        title: o.title || '',
-        url: 'https://www.avito.ru' + String(o.urlPath).split('?')[0],
-        price: (o.priceDetailed && +o.priceDetailed.value) || 0,
-        img: im['416x416'] || im['472x472'] || Object.values(im)[0] || '',
-        city: (o.addressDetailed && o.addressDetailed.locationName) || (alt.includes(',') ? alt.split(',').pop().trim() : ''),
-        desc: String(o.description || '').slice(0, 300),
-        // строка «Отличное · 48 (M) · Brunello Cucinelli» — в ней всегда есть бренд
-        params,
-        ts: +o.sortTimeStamp,
-        sellerKey, sellerName,
-        closed,
-        reserved: !!o.isReserved, // «Забронировано» — купить пока нельзя
-        pal: palFeaturesMemo(id, { title: o.title || '', desc: String(o.description || ''), params, sellerName, closed, price: (o.priceDetailed && +o.priceDetailed.value) || 0 }),
-        extra: exFrom >= 0 && m.index > exFrom && (exTo < 0 || m.index < exTo),
-      });
+      put(o, exFrom >= 0 && m.index > exFrom && (exTo < 0 || m.index < exTo));
     }
     return [...out.values()];
   }
@@ -1470,6 +1494,8 @@
   const apiKeyOf = (s) => `${location.hostname}|${kindKeyOf(s) || '?'}${isTextSearch(s) ? '|q' : ''}`;
   const apiOk = () => peekJSON('apiOk', '{}');
   const apiSet = (k, v) => GM_setValue('apiOk', JSON.stringify({ ...apiOk(), [k]: v }));
+  // v7.3 сверяла вместе с каруселью рекомендаций и могла зря выключить JSON — сверяем заново, один раз
+  if (!GM_getValue('plan74', '')) { GM_setValue('apiOk', '{}'); GM_setValue('plan74', 'done:' + Date.now()); }
 
   // S — состояние проверки в памяти (см. checkAll): поиски, лента, что поменялось. Пишем в хранилище пачкой.
   async function checkOne(s, S) {
@@ -1672,7 +1698,7 @@
   // Чистим ленту от лишнего. Непросмотренные объявления НЕ трогаем (раньше обрезали всё подряд до 400 —
   // и после долгого перерыва большая часть новых пропадала). Режем только просмотренные и скрытые фильтрами.
   // номер версии кода: вкладка со старой версией, увидев более новую, перестаёт проверять в фоне
-  const CODE_VER = 73;
+  const CODE_VER = 74;
   if (+GM_getValue('codeVer', 0) < CODE_VER) GM_setValue('codeVer', CODE_VER);
   const PENDING_MAX = 5000; // аварийный потолок для непросмотренных
   function trimFeed(feed) {
