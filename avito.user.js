@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Avito — скрыть продавцов + мои поиски
 // @namespace    avito-seller-blocker
-// @version      7.2
+// @version      7.3
 // @description  Скрытие продавцов, сохранённые поиски, стоп-слова, лента новых объявлений по всем поискам
 // @match        https://www.avito.ru/*
 // @match        https://m.avito.ru/*
@@ -1418,6 +1418,7 @@
         ts: +o.sortTimeStamp,
         sellerKey, sellerName,
         closed,
+        reserved: !!o.isReserved, // «Забронировано» — купить пока нельзя
         pal: palFeaturesMemo(id, { title: o.title || '', desc: String(o.description || ''), params, sellerName, closed, price: (o.priceDetailed && +o.priceDetailed.value) || 0 }),
         extra: exFrom >= 0 && m.index > exFrom && (exTo < 0 || m.index < exTo),
       });
@@ -1438,14 +1439,65 @@
   }
   const loadSkip = () => { try { return JSON.parse(GM_getValue(SKIP_KEY, '{}')) || {}; } catch { return {}; } };
 
+  // Выдача JSON-ом: GET /web/1/js/items (разведка пользователя 26.10: мужская одежда, 1 стр. — 2,0 МБ / 0,97 с против
+  // HTML 3,9 МБ / 2,1 с). Адрес поиска не меняется: раздел и фильтры из кода пути (-ASg…) и f переводятся в
+  // params[ID][i]; categoryId=27 (раздел задаёт params[175]), locationId=621540 — «Все регионы» (без него — регион
+  // пользователя, и всё уходит в extraBlockItems), d=1 — с Авито Доставкой, pmin/pmax — цена, name + cd=1 — слово
+  // внутри раздела, p — страница. context не нужен. Разбор — тот же parseState: объекты объявлений такие же.
+  const API_ALL_RU = 621540;
+  function apiUrl(url) {
+    let u; try { u = new URL(url, location.origin); } catch { return null; }
+    const segs = u.pathname.split('/').filter(Boolean);
+    if (segs[0] !== 'all' || segs[1] !== 'odezhda_obuv_aksessuary') return null; // только вся Россия и раздел вещей
+    const vals = new Map(), add = (k, v) => { if (!vals.has(k)) vals.set(k, new Set()); vals.get(k).add(v); };
+    let json = null;
+    try {
+      const last = segs[segs.length - 1], i = last.lastIndexOf('-');
+      if (segs.length > 2 && i >= 0) avfParse(last.slice(i + 1)).singles.forEach(([k, v]) => add(k, v));
+      const fc = u.searchParams.get('f');
+      if (fc) { const f = avfParse(fc); f.singles.forEach(([k, v]) => add(k, v)); f.multi.forEach(([k, vs]) => vs.forEach((v) => add(k, v))); json = f.json; }
+    } catch { return null; }
+    if (json && json[0] !== P_PRICE) return null; // другой JSON-фильтр — не знаем, как передать
+    const q = new URLSearchParams({ categoryId: '27', locationId: String(API_ALL_RU), s: u.searchParams.get('s') || '104', updateListOnly: 'true' });
+    if (u.searchParams.get('d') === '1') q.set('d', '1');
+    const name = u.searchParams.get('q');
+    if (name) { q.set('name', name); if (u.searchParams.get('cd') === '1') q.set('cd', '1'); }
+    if (u.searchParams.get('p')) q.set('p', u.searchParams.get('p'));
+    if (json) { const pr = json[1] || {}; if (+pr.from) q.set('pmin', String(pr.from)); if (+pr.to) q.set('pmax', String(pr.to)); }
+    for (const [k, set] of vals) [...set].forEach((v, n) => q.append(`params[${k}][${n}]`, String(v)));
+    return location.origin + '/web/1/js/items?' + q.toString();
+  }
+  const apiKeyOf = (s) => `${location.hostname}|${kindKeyOf(s) || '?'}${isTextSearch(s) ? '|q' : ''}`;
+  const apiOk = () => peekJSON('apiOk', '{}');
+  const apiSet = (k, v) => GM_setValue('apiOk', JSON.stringify({ ...apiOk(), [k]: v }));
+
   // S — состояние проверки в памяти (см. checkAll): поиски, лента, что поменялось. Пишем в хранилище пачкой.
   async function checkOne(s, S) {
     const feed = S.feed;
     const cond = loadOpts().noNewTag ? condUrl(s.url) : null;
     const url = cond && condOk()[cond.cat] !== 0 ? cond.url : s.url;
     const u = new URL(url);
-    const res = await fetch(location.origin + u.pathname + u.search, { credentials: 'include' });
-    const html = await res.text();
+    let res = null, html = '', viaApi = false;
+    // выдача через JSON (v7.3): первый раз для каждого вида поисков сверяем с обычной страницей
+    const key = apiKeyOf(s), st = apiOk()[key], au = st === 0 ? null : apiUrl(url);
+    if (au) {
+      try {
+        const r = await fetch(au, { credentials: 'include' }), t = await r.text();
+        if (r.ok && /^\s*\{/.test(t)) { res = r; html = t; viaApi = true; }
+        else if (r.status === 404 || r.ok) apiSet(key, 0); // на этом сайте такого запроса нет (m.avito.ru?) — дальше страницами
+      } catch { /* сеть — ниже обычная страница */ }
+      if (viaApi && st !== 1) {
+        const pr = await fetch(location.origin + u.pathname + u.search, { credentials: 'include' }), ph = await pr.text();
+        const b = parseState(ph).filter((x) => !x.extra).map((x) => x.id);
+        if (b.length >= 5) { // пустая страница или заготовка — сверить нечем, сверим на следующем поиске
+          const a = new Set(parseState(html).filter((x) => !x.extra).map((x) => x.id));
+          const ok = b.filter((id) => a.has(id)).length >= b.length * 0.6;
+          apiSet(key, ok ? 1 : 0);
+          if (!ok) { viaApi = false; res = pr; html = ph; }
+        }
+      }
+    }
+    if (!res) { res = await fetch(location.origin + u.pathname + u.search, { credentials: 'include' }); html = await res.text(); }
     const cs = S.mem.get(s.id);
     if (!cs) return { found: 0 };
     const set = (k, v) => { cs[k] = v; S.patch(cs.id).fields[k] = v; };
@@ -1472,7 +1524,7 @@
         return { blocked: true };
       }
       // www.avito.ru пишет в выдаче, как понял фильтры; нет этого и нет объявлений — Авито открыл пустую оболочку
-      set('warn', /^www\./.test(location.hostname) && !/"page":\d+,"params"/.test(html) ? 'empty' : '');
+      set('warn', !viaApi && /^www\./.test(location.hostname) && !/"page":\d+,"params"/.test(html) ? 'empty' : '');
       return { found: 0 };
     }
     // если вся страница новая — новых могло быть больше 50: дочитываем 2-ю и 3-ю страницы
@@ -1483,7 +1535,7 @@
       const pu = new URL(location.origin + u.pathname + u.search);
       pu.searchParams.set('p', String(page));
       await sleep(250 + Math.random() * 250);
-      const more = parseState(await (await fetch(pu.toString(), { credentials: 'include' })).text()).filter((x) => !x.extra);
+      const more = parseState(await (await fetch((viaApi && apiUrl(pu.toString())) || pu.toString(), { credentials: 'include' })).text()).filter((x) => !x.extra);
       const known = new Set(items.map((x) => x.id));
       const add = more.filter((x) => !known.has(x.id));
       if (!add.length) break;
@@ -1540,7 +1592,7 @@
         }
         // ничего не поменялось — ленту не переписываем (раньше каждая проверка заново сохраняла её целиком)
         if (sid === prev.sid && it.price === prev.price && it.ts === prev.ts && it.title === prev.title && it.params === prev.params &&
-          it.desc === prev.desc && it.img === prev.img && it.sellerKey === prev.sellerKey && it.sellerName === prev.sellerName && it.closed === prev.closed) continue;
+          it.desc === prev.desc && it.img === prev.img && it.sellerKey === prev.sellerKey && it.sellerName === prev.sellerName && it.closed === prev.closed && !!it.reserved === !!prev.reserved) continue;
         // цена поменялась — помним первую, чтобы показать «📉 было …»
         let oldPrice = prev.oldPrice;
         if (prev.price && it.price && it.price !== prev.price) oldPrice = prev.oldPrice || prev.price;
@@ -1620,7 +1672,7 @@
   // Чистим ленту от лишнего. Непросмотренные объявления НЕ трогаем (раньше обрезали всё подряд до 400 —
   // и после долгого перерыва большая часть новых пропадала). Режем только просмотренные и скрытые фильтрами.
   // номер версии кода: вкладка со старой версией, увидев более новую, перестаёт проверять в фоне
-  const CODE_VER = 72;
+  const CODE_VER = 73;
   if (+GM_getValue('codeVer', 0) < CODE_VER) GM_setValue('codeVer', CODE_VER);
   const PENDING_MAX = 5000; // аварийный потолок для непросмотренных
   function trimFeed(feed) {
@@ -2018,6 +2070,8 @@
     const single = list.filter((x) => brandIdsOf(x.url).length === 1); // свежие адреса с брендом (brandFix66) — в первую очередь
     const one = single.find((x) => !pathHasBrand(x.url)) || single.find((x) => !x.lastTs) || single[0];
     if (one && !targets.some((t) => t.url === one.url)) targets.push({ label: 'поиск одного бренда: ' + one.name, url: one.url });
+    const au = targets[0] && apiUrl(targets[0].url); // тот же поиск JSON-ом — сверить разбор (v7.3)
+    if (au) targets.push({ label: 'JSON: ' + targets[0].label, url: au });
     const cu = targets[0] && condUrl(targets[0].url);
     if (cu) targets.push({ label: 'поиск с фильтром «Состояние»: ' + targets[0].label.split(': ').slice(1).join(': '), url: cu.url });
     const items = Object.values(loadFeedRO()).sort((a, b) => (b.found || 0) - (a.found || 0));
@@ -2606,7 +2660,7 @@
         pr.append(el('span', 'amf-old', `${it.oldPrice > it.price ? '📉' : '📈'} было ${fmtPrice(it.oldPrice)}`));
       }
       body.append(t, pr,
-        el('div', 'amf-meta', [it.ts ? '🕒 ' + fmtAge(it.ts) : '', it.bumped ? '♻️ перевыложено' : '', it.tw === 'wait' ? '📄 проверяю описание' : '', it.city, it.sellerName, it.sname ? '🔎 ' + it.sname : ''].filter(Boolean).join(' · ')));
+        el('div', 'amf-meta', [it.ts ? '🕒 ' + fmtAge(it.ts) : '', it.reserved ? '🔒 забронировано' : '', it.bumped ? '♻️ перевыложено' : '', it.tw === 'wait' ? '📄 проверяю описание' : '', it.city, it.sellerName, it.sname ? '🔎 ' + it.sname : ''].filter(Boolean).join(' · ')));
       if (it.params) body.append(el('div', 'amf-meta', '🏷 ' + it.params));
       if (it.favAt && tab === 'fav') body.append(el('div', 'amf-meta', '❤️ отложено ' + fmtWhen(it.favAt) + (it.priceAt ? ' · цена обновлена ' + fmtWhen(it.priceAt) : '')));
       if (it.pv) body.append(el('div', 'amf-pal', '🇨🇳 ' + it.pv.why.join(' · ')));
