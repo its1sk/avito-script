@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Avito — скрыть продавцов + мои поиски
 // @namespace    avito-seller-blocker
-// @version      7.6
+// @version      7.7
 // @description  Скрытие продавцов, сохранённые поиски, стоп-слова, лента новых объявлений по всем поискам
 // @match        https://www.avito.ru/*
 // @match        https://m.avito.ru/*
@@ -713,8 +713,9 @@
     if (!echo.params) return verifyByItems(html, m); // m.avito.ru не пишет в странице, как понял фильтры
     const miss = echo.params ? want.filter(([k, vals]) => { const got = new Set(asIds(echo.params[k])); return !vals.every((v) => got.has(v)); }).map(([k]) => k) : want.map(([k]) => k);
     if (!miss.length) return [];
-    // Запасная проверка — по самим объявлениям в выдаче. У аксессуаров Авито не возвращает фильтры в ответе,
-    // хотя поиск работает: тогда смотрим, что почти всё в выдаче — нужных брендов и действительно аксессуары.
+    // Запасная проверка — по самим объявлениям в выдаче: почти всё — нужных брендов и действительно аксессуары.
+    // На www с путём kupit-aksessuary Авито фильтры возвращает (живой Авито 26.10: "params":{"175":749,"115634":[…]}),
+    // сюда доходит, только если ответ неполный.
     const items = parseState(html).filter((x) => !x.extra && x.params);
     if (items.length >= 5) {
       const brandOk = items.filter((it) => !brandMismatch(it, { name: m.name })).length >= items.length * 0.8;
@@ -1763,7 +1764,7 @@
   // Чистим ленту от лишнего. Непросмотренные объявления НЕ трогаем (раньше обрезали всё подряд до 400 —
   // и после долгого перерыва большая часть новых пропадала). Режем только просмотренные и скрытые фильтрами.
   // номер версии кода: вкладка со старой версией, увидев более новую, перестаёт проверять в фоне
-  const CODE_VER = 76;
+  const CODE_VER = 77;
   if (+GM_getValue('codeVer', 0) < CODE_VER) GM_setValue('codeVer', CODE_VER);
   const PENDING_MAX = 5000; // аварийный потолок для непросмотренных
   function trimFeed(feed) {
@@ -1884,6 +1885,9 @@
   // 17.10), поэтому страницу берём как выдачу — с вашими cookie (пользователь согласен, что это влияет на рекомендации).
   // Только вещи, похожие на товар магазина, по одной, каждую — один раз.
   const DESC = { perRun: 12, gap: 2500, maxAgeH: 72, keep: 1500, pause: 15 * 60000, maxPause: 2 * 3600000 };
+  // описание в выдаче обрезано до 253 знаков с «...» на конце (живой Авито 26.10: у 28 из 50) — это не полное описание;
+  // до v7.7 такие считались полными (≥250 знаков) и не качались, хотя фразы пали обычно дальше
+  const DESC_CUT = /(?:\.\.\.|…)\s*$/;
   const loadDescSt = () => peekJSON('descState', '{}');
   const saveDescSt = (o) => GM_setValue('descState', JSON.stringify({ ...loadDescSt(), ...o }));
   let descRunning = false;
@@ -1898,7 +1902,7 @@
     return pendingItems().filter((it) => {
       if (it.descAt || !it.url) return false;
       if (it.tw === 'wait') return true; // поиск по слову: слова нет в названии — есть ли оно в описании
-      if ((it.desc || '').length >= 250) return false;
+      if ((it.desc || '').length >= 250 && !DESC_CUT.test(it.desc)) return false; // из выдачи — целиком, качать нечего
       if (missed[it.id] || it.pv) return true;
       if ((it.found || 0) <= border || (it.sellerKey && okSellers[it.sellerKey])) return false;
       return /^новое/.test(norm(String(it.params || '').split('·')[0]).trim()) || shopLike(it);
