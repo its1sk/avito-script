@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Avito — скрыть продавцов + мои поиски
 // @namespace    avito-seller-blocker
-// @version      7.4
+// @version      7.5
 // @description  Скрытие продавцов, сохранённые поиски, стоп-слова, лента новых объявлений по всем поискам
 // @match        https://www.avito.ru/*
 // @match        https://m.avito.ru/*
@@ -1424,10 +1424,10 @@
     }
     return null;
   }
-  function parseState(html) {
+  function parseState(html, ready = null) {
     const out = new Map();
     const put = (o, extra) => { const it = toItem(o, extra); if (it && !out.has(it.id)) out.set(it.id, it); };
-    const cat = catalogOf(html);
+    const cat = ready || catalogOf(html); // ready — каталог из уже разобранного JSON
     if (cat) {
       for (const o of cat.items) if (o && (!o.type || o.type === 'item')) put(o, false);
       for (const o of cat.extraBlockItems || []) if (o && (!o.type || o.type === 'item')) put(o, true);
@@ -1469,11 +1469,12 @@
   // пользователя, и всё уходит в extraBlockItems), d=1 — с Авито Доставкой, pmin/pmax — цена, name + cd=1 — слово
   // внутри раздела, p — страница. context не нужен. Разбор — тот же parseState: объекты объявлений такие же.
   const API_ALL_RU = 621540;
-  function apiUrl(url) {
+  // что спрашиваем у Авито: { categoryId, locationId, name, cd, s, d, pmin, pmax, p, params: { id: [значения] } }
+  function apiSpec(url) {
     let u; try { u = new URL(url, location.origin); } catch { return null; }
     const segs = u.pathname.split('/').filter(Boolean);
     if (segs[0] !== 'all' || segs[1] !== 'odezhda_obuv_aksessuary') return null; // только вся Россия и раздел вещей
-    const vals = new Map(), add = (k, v) => { if (!vals.has(k)) vals.set(k, new Set()); vals.get(k).add(v); };
+    const params = {}, add = (k, v) => { const a = params[k] || (params[k] = []); if (!a.includes(v)) a.push(v); };
     let json = null;
     try {
       const last = segs[segs.length - 1], i = last.lastIndexOf('-');
@@ -1482,15 +1483,45 @@
       if (fc) { const f = avfParse(fc); f.singles.forEach(([k, v]) => add(k, v)); f.multi.forEach(([k, vs]) => vs.forEach((v) => add(k, v))); json = f.json; }
     } catch { return null; }
     if (json && json[0] !== P_PRICE) return null; // другой JSON-фильтр — не знаем, как передать
-    const q = new URLSearchParams({ categoryId: '27', locationId: String(API_ALL_RU), s: u.searchParams.get('s') || '104', updateListOnly: 'true' });
-    if (u.searchParams.get('d') === '1') q.set('d', '1');
-    const name = u.searchParams.get('q');
-    if (name) { q.set('name', name); if (u.searchParams.get('cd') === '1') q.set('cd', '1'); }
-    if (u.searchParams.get('p')) q.set('p', u.searchParams.get('p'));
-    if (json) { const pr = json[1] || {}; if (+pr.from) q.set('pmin', String(pr.from)); if (+pr.to) q.set('pmax', String(pr.to)); }
-    for (const [k, set] of vals) [...set].forEach((v, n) => q.append(`params[${k}][${n}]`, String(v)));
-    return location.origin + '/web/1/js/items?' + q.toString();
+    const pr = (json && json[1]) || {}, name = u.searchParams.get('q');
+    return { categoryId: 27, locationId: API_ALL_RU, s: u.searchParams.get('s') || '104', d: u.searchParams.get('d') === '1' ? 1 : null,
+      name: name || null, cd: name && u.searchParams.get('cd') === '1' ? 1 : null, p: +u.searchParams.get('p') > 1 ? +u.searchParams.get('p') : null,
+      pmin: +pr.from || null, pmax: +pr.to || null, params };
   }
+  function itemsUrl(q) {
+    const u = new URLSearchParams();
+    for (const k of ['categoryId', 'locationId', 'name', 'cd', 's', 'd', 'pmin', 'pmax', 'p']) if (q[k] != null && q[k] !== '') u.set(k, String(q[k]));
+    for (const [id, vals] of Object.entries(q.params)) vals.forEach((v, i) => u.append(`params[${id}][${i}]`, String(v)));
+    u.set('updateListOnly', 'true');
+    return location.origin + '/web/1/js/items?' + u.toString();
+  }
+  const apiUrl = (url) => { const q = apiSpec(url); return q && itemsUrl(q); };
+  // Проверка каждого ответа (разведка пользователя 26.10, json_proverka.js): Авито пишет в searchCore, как понял запрос.
+  // Не сходится — этот поиск берём страницей. Пустой массив — всё в порядке.
+  function apiCheck(q, j, prevIds) {
+    const sc = j && j.searchCore;
+    if (!sc || !j.catalog || !Array.isArray(j.catalog.items)) return ['нет searchCore/catalog — формат ответа поменялся'];
+    const bad = [], eq = (a, b) => String(a ?? '') === String(b ?? '');
+    if (!eq(sc.locationId, q.locationId)) bad.push(`регион ${sc.locationId} вместо ${q.locationId}`);
+    if (!eq(sc.categoryId, q.categoryId)) bad.push(`раздел ${sc.categoryId} вместо ${q.categoryId}`);
+    if (q.name && String(sc.query || '').toLowerCase() !== q.name.toLowerCase()) bad.push(`запрос «${sc.query}» вместо «${q.name}»`);
+    if (q.d && !sc.withDeliveryOnly) bad.push('пропал фильтр «с доставкой»');
+    if (q.pmax && !eq(sc.priceMax, q.pmax)) bad.push(`цена до ${sc.priceMax} вместо ${q.pmax}`);
+    if (q.pmin && !eq(sc.priceMin, q.pmin)) bad.push(`цена от ${sc.priceMin} вместо ${q.pmin}`);
+    if (q.s && !eq(sc.sort, q.s)) bad.push(`сортировка ${sc.sort} вместо ${q.s}`);
+    if (q.p && !eq(sc.page, q.p)) bad.push(`страница ${sc.page} вместо ${q.p}`);
+    for (const [id, vals] of Object.entries(q.params)) {
+      const got = [].concat((sc.params && sc.params[id]) ?? []).map(String).sort().join(','), want = vals.map(String).sort().join(',');
+      if (got !== want) bad.push(`фильтр ${id}: «${got}» вместо «${want}»`);
+    }
+    const items = j.catalog.items.filter((i) => i && (i.type || 'item') === 'item');
+    if (q.pmax) { const over = items.filter((i) => ((i.priceDetailed && i.priceDetailed.value) || 0) > q.pmax).length; if (over > 2) bad.push(`${over} объявл. дороже ${q.pmax}`); }
+    const alien = items.filter((i) => i.category && i.category.id !== 27 && i.category.rootId !== 5).length;
+    if (alien > 2) bad.push(`${alien} объявл. не из раздела вещей`);
+    if (prevIds && items.length) { const rp = items.filter((i) => prevIds.has(String(i.id))).length; if (rp > items.length / 2) bad.push(`страница повторяет предыдущую (${rp} из ${items.length})`); }
+    return bad;
+  }
+  const API_RETRY = 7 * 86400000; // поиск, у которого JSON не сошёлся, — страницами; через неделю попробуем снова
   const apiKeyOf = (s) => `${location.hostname}|${kindKeyOf(s) || '?'}${isTextSearch(s) ? '|q' : ''}`;
   const apiOk = () => peekJSON('apiOk', '{}');
   const apiSet = (k, v) => GM_setValue('apiOk', JSON.stringify({ ...apiOk(), [k]: v }));
@@ -1503,35 +1534,42 @@
     const cond = loadOpts().noNewTag ? condUrl(s.url) : null;
     const url = cond && condOk()[cond.cat] !== 0 ? cond.url : s.url;
     const u = new URL(url);
-    let res = null, html = '', viaApi = false;
-    // выдача через JSON (v7.3): первый раз для каждого вида поисков сверяем с обычной страницей
-    const key = apiKeyOf(s), st = apiOk()[key], au = st === 0 ? null : apiUrl(url);
-    if (au) {
+    const cs = S.mem.get(s.id);
+    if (!cs) return { found: 0 };
+    const set = (k, v) => { cs[k] = v; S.patch(cs.id).fields[k] = v; };
+    let res = null, html = '', viaApi = false, cat = null;
+    // Выдача JSON-ом (v7.3). Каждый ответ сверяется с запросом по searchCore (v7.5); с обычной страницей — первый раз
+    // для вида поисков и потом изредка, примерно 1 из 20: ловит «правильно понятый» запрос с другой выборкой.
+    const key = apiKeyOf(s), st = apiOk()[key], noApi = cs.noApi && Date.now() - (cs.noApi.at || 0) < API_RETRY;
+    const spec = st === 0 || noApi ? null : apiSpec(url);
+    if (spec) {
       try {
-        const r = await fetch(au, { credentials: 'include' }), t = await r.text();
-        if (r.ok && /^\s*\{/.test(t)) { res = r; html = t; viaApi = true; }
-        else if (r.status === 404 || r.ok) apiSet(key, 0); // на этом сайте такого запроса нет (m.avito.ru?) — дальше страницами
+        const r = await fetch(itemsUrl(spec), { credentials: 'include' }), t = await r.text();
+        let j = null;
+        if (r.ok && /^\s*\{/.test(t)) { try { j = JSON.parse(t); } catch { /* не JSON */ } }
+        if (j) {
+          const bad = apiCheck(spec, j);
+          if (bad.length) set('noApi', { why: bad.join('; ').slice(0, 300), at: Date.now() });
+          else { res = r; viaApi = true; cat = j.catalog; if (cs.noApi) set('noApi', null); }
+        } else if (r.status === 404 || r.ok) apiSet(key, 0); // на этом сайте такого запроса нет (m.avito.ru?) — дальше страницами
       } catch { /* сеть — ниже обычная страница */ }
-      if (viaApi && st !== 1) {
+      if (viaApi && (st !== 1 || Math.random() < 0.05)) {
         const pr = await fetch(location.origin + u.pathname + u.search, { credentials: 'include' }), ph = await pr.text();
         const b = parseState(ph).filter((x) => !x.extra).map((x) => x.id);
-        if (b.length >= 5) { // пустая страница или заготовка — сверить нечем, сверим на следующем поиске
-          const a = new Set(parseState(html).filter((x) => !x.extra).map((x) => x.id));
-          const ok = b.filter((id) => a.has(id)).length >= b.length * 0.6;
+        if (b.length >= 5) { // пустая страница или заготовка — сверить нечем, сверим в другой раз
+          const a = new Set(parseState('', cat).filter((x) => !x.extra).map((x) => x.id));
+          const ok = b.filter((id) => a.has(id)).length >= b.length * 0.8;
           apiSet(key, ok ? 1 : 0);
-          if (!ok) { viaApi = false; res = pr; html = ph; }
+          if (!ok) { viaApi = false; cat = null; res = pr; html = ph; }
         }
       }
     }
     if (!res) { res = await fetch(location.origin + u.pathname + u.search, { credentials: 'include' }); html = await res.text(); }
-    const cs = S.mem.get(s.id);
-    if (!cs) return { found: 0 };
-    const set = (k, v) => { cs[k] = v; S.patch(cs.id).fields[k] = v; };
     if (res.status === 404 || (NOT_FOUND.test(html.slice(0, 200000)) && !/"params"/.test(html))) {
       set('warn', 'notfound'); set('lastCheckAt', Date.now());
       return { found: 0 };
     }
-    const all = parseState(html);
+    const all = parseState(html, cat);
     const hasTs = all.length > 0;
     let items = all.filter((x) => !x.extra);          // только настоящая выдача, без «других городов»
     const extraOnly = hasTs && !items.length;
@@ -1561,7 +1599,14 @@
       const pu = new URL(location.origin + u.pathname + u.search);
       pu.searchParams.set('p', String(page));
       await sleep(250 + Math.random() * 250);
-      const more = parseState(await (await fetch((viaApi && apiUrl(pu.toString())) || pu.toString(), { credentials: 'include' })).text()).filter((x) => !x.extra);
+      let more;
+      if (viaApi) { // следующая страница JSON-ом — с той же проверкой; не сошлось — дальше не листаем
+        const sp = apiSpec(pu.toString());
+        let j = null;
+        try { j = JSON.parse(await (await fetch(itemsUrl(sp), { credentials: 'include' })).text()); } catch { /* ниже */ }
+        if (!j || apiCheck(sp, j, new Set(items.map((x) => x.id))).length) break;
+        more = parseState('', j.catalog).filter((x) => !x.extra);
+      } else more = parseState(await (await fetch(pu.toString(), { credentials: 'include' })).text()).filter((x) => !x.extra);
       const known = new Set(items.map((x) => x.id));
       const add = more.filter((x) => !known.has(x.id));
       if (!add.length) break;
@@ -1698,7 +1743,7 @@
   // Чистим ленту от лишнего. Непросмотренные объявления НЕ трогаем (раньше обрезали всё подряд до 400 —
   // и после долгого перерыва большая часть новых пропадала). Режем только просмотренные и скрытые фильтрами.
   // номер версии кода: вкладка со старой версией, увидев более новую, перестаёт проверять в фоне
-  const CODE_VER = 74;
+  const CODE_VER = 75;
   if (+GM_getValue('codeVer', 0) < CODE_VER) GM_setValue('codeVer', CODE_VER);
   const PENDING_MAX = 5000; // аварийный потолок для непросмотренных
   function trimFeed(feed) {
@@ -2121,7 +2166,8 @@
     }
     if (!pages.length) { ui.done('Ничего не скачалось.'); return; }
     ui.say('Сжимаю и сохраняю файл…');
-    const data = { kind: 'ams-pages', v: typeof GM_info !== 'undefined' ? GM_info.script.version : '', origin: location.origin, ua: navigator.userAgent, at: Date.now(), descState: loadDescSt(), pages };
+    const data = { kind: 'ams-pages', v: typeof GM_info !== 'undefined' ? GM_info.script.version : '', origin: location.origin, ua: navigator.userAgent, at: Date.now(), descState: loadDescSt(),
+      api: { ok: apiOk(), bad: loadRO().filter((x) => x.noApi).map((x) => ({ name: x.name, ...x.noApi })) }, pages };
     downloadText(await encode(data), `avito-stranicy-${location.hostname.split('.')[0]}-${devStamp()}.txt`);
     ui.done(`✅ Файл сохранён: страниц ${pages.length}. Пришлите его разработчику. Лучше сделать это и на ПК (www.avito.ru), и на телефоне (m.avito.ru) — страницы там разные.`);
   }
