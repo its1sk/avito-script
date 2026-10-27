@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Avito — скрыть продавцов + мои поиски
 // @namespace    avito-seller-blocker
-// @version      7.7
+// @version      7.8
 // @description  Скрытие продавцов, сохранённые поиски, стоп-слова, лента новых объявлений по всем поискам
 // @match        https://www.avito.ru/*
 // @match        https://m.avito.ru/*
@@ -1542,6 +1542,7 @@
     return bad;
   }
   const API_RETRY = 7 * 86400000; // поиск, у которого JSON не сошёлся, — страницами; через неделю попробуем снова
+  const API_RETRY_BLK = 86400000; // JSON поиска заблокирован (403/429/439; 27.10 — у одного адреса, а страница 200) — блок временный, через сутки
   const apiKeyOf = (s) => `${location.hostname}|${kindKeyOf(s) || '?'}${isTextSearch(s) ? '|q' : ''}`;
   const apiOk = () => peekJSON('apiOk', '{}');
   const apiSet = (k, v) => GM_setValue('apiOk', JSON.stringify({ ...apiOk(), [k]: v }));
@@ -1560,7 +1561,8 @@
     let res = null, html = '', viaApi = false, cat = null;
     // Выдача JSON-ом (v7.3). Каждый ответ сверяется с запросом по searchCore (v7.5); с обычной страницей — первый раз
     // для вида поисков и потом изредка, примерно 1 из 20: ловит «правильно понятый» запрос с другой выборкой.
-    const key = apiKeyOf(s), st = apiOk()[key], noApi = cs.noApi && Date.now() - (cs.noApi.at || 0) < API_RETRY;
+    const key = apiKeyOf(s), st = apiOk()[key], na = cs.noApi;
+    const noApi = na && Date.now() - (na.at || 0) < (na.blk ? API_RETRY_BLK : API_RETRY);
     const spec = st === 0 || noApi ? null : apiSpec(url);
     if (spec) {
       try {
@@ -1571,6 +1573,8 @@
           const bad = apiCheck(spec, j);
           if (bad.length) set('noApi', { why: bad.join('; ').slice(0, 300), at: Date.now() });
           else { res = r; viaApi = true; cat = j.catalog; if (cs.noApi) set('noApi', null); }
+        } else if ([403, 429, 439].includes(r.status) || /доступ ограничен|captcha/i.test(t.slice(0, 2000))) { // блок, а не другой формат: вид не выключаем
+          set('noApi', { why: `JSON: Авито ответил ${r.status}${r.ok ? ', «доступ ограничен»' : ''}`, at: Date.now(), blk: 1 });
         } else if (r.status === 404 || r.ok) apiSet(key, 0); // на этом сайте такого запроса нет (m.avito.ru?) — дальше страницами
       } catch { /* сеть — ниже обычная страница */ }
       if (viaApi && (st !== 1 || Math.random() < 0.05)) {
@@ -1604,7 +1608,7 @@
       }
     }
     if (!items.length && !extraOnly) {
-      if (res.status === 429 || res.status === 403 || /captcha|Доступ ограничен|firewall/i.test(html.slice(0, 30000))) {
+      if (res.status === 429 || res.status === 403 || res.status === 439 || /captcha|Доступ ограничен|firewall/i.test(html.slice(0, 30000))) {
         return { blocked: true };
       }
       // www.avito.ru пишет в выдаче, как понял фильтры; нет этого и нет объявлений — Авито открыл пустую оболочку
@@ -1764,7 +1768,7 @@
   // Чистим ленту от лишнего. Непросмотренные объявления НЕ трогаем (раньше обрезали всё подряд до 400 —
   // и после долгого перерыва большая часть новых пропадала). Режем только просмотренные и скрытые фильтрами.
   // номер версии кода: вкладка со старой версией, увидев более новую, перестаёт проверять в фоне
-  const CODE_VER = 77;
+  const CODE_VER = 78;
   if (+GM_getValue('codeVer', 0) < CODE_VER) GM_setValue('codeVer', CODE_VER);
   const PENDING_MAX = 5000; // аварийный потолок для непросмотренных
   function trimFeed(feed) {
