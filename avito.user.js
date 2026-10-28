@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Avito — скрыть продавцов + мои поиски
 // @namespace    avito-seller-blocker
-// @version      7.8
+// @version      7.9
 // @description  Скрытие продавцов, сохранённые поиски, стоп-слова, лента новых объявлений по всем поискам
 // @match        https://www.avito.ru/*
 // @match        https://m.avito.ru/*
@@ -512,7 +512,7 @@
         if (!ta.value.trim()) { err.textContent = 'Пусто — вставьте код или выберите файл'; return; }
         try {
           const data = await decode(ta.value);
-          if (data && ['ams-palreport', 'ams-pages', 'ams-subcats'].includes(data.kind)) { err.textContent = 'Это файл для разработчика — его не загружают, а присылают в чат.'; return; }
+          if (data && ['ams-palreport', 'ams-pages', 'ams-subcats', 'ams-feed'].includes(data.kind)) { err.textContent = 'Это файл для разработчика — его не загружают, а присылают в чат.'; return; }
           close();
           if (data && data.kind === 'ams-local') {
             if (!confirm(`Заменить всё на этом устройстве копией с другого (поисков ${data.searches.length}, ` +
@@ -1324,6 +1324,18 @@
     downloadText(await encode(data), `avito-pal-analiz-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.txt`);
     return { missed: missed.length, wrong: wrong.length, pal: palTab.length, normal: rest.length };
   }
+  // «🧾 Выгрузка ленты» (v7.9): всё непросмотренное в ленте — для разбора в чате (с фото, ценами, описаниями, оценкой пали).
+  // «📤 Перенос» берёт только последние 100 объявлений, «📊 Файл для анализа» — до 400 обычных.
+  async function exportFeedUi() {
+    try {
+      const keep = ['id', 'url', 'title', 'price', 'saleOld', 'salePct', 'priceBase', 'oldPrice', 'params', 'desc', 'fullDesc', 'img', 'city', 'ts', 'found',
+        'shownAt', 'sellerName', 'sellerKey', 'closed', 'reserved', 'bumped', 'sname', 'pv', 'tw'];
+      const items = pendingItems().map((it) => Object.fromEntries(keep.filter((k) => it[k] != null && it[k] !== '').map((k) => [k, it[k]])));
+      const data = { kind: 'ams-feed', v: typeof GM_info !== 'undefined' ? GM_info.script.version : '', at: Date.now(), meta: loadMeta(), items };
+      downloadText(await encode(data), `avito-lenta-${new Date().toISOString().slice(0, 16).replace(/[:T]/g, '-')}.txt`);
+      alert(`Файл сохранён: ${items.length} объявлений (из них похоже на паль — ${items.filter((x) => x.pv).length}).\n\nПришлите его в чат с разработчиком. Загружать его в скрипт не нужно.`);
+    } catch (e) { alert('Не вышло сохранить файл: ' + e.message); }
+  }
   async function exportPalReportUi() {
     try {
       const n = await exportPalReport();
@@ -1768,7 +1780,7 @@
   // Чистим ленту от лишнего. Непросмотренные объявления НЕ трогаем (раньше обрезали всё подряд до 400 —
   // и после долгого перерыва большая часть новых пропадала). Режем только просмотренные и скрытые фильтрами.
   // номер версии кода: вкладка со старой версией, увидев более новую, перестаёт проверять в фоне
-  const CODE_VER = 78;
+  const CODE_VER = 79;
   if (+GM_getValue('codeVer', 0) < CODE_VER) GM_setValue('codeVer', CODE_VER);
   const PENDING_MAX = 5000; // аварийный потолок для непросмотренных
   function trimFeed(feed) {
@@ -2290,10 +2302,11 @@
       const devP = mbtn('💾 Страницы для разработчика'); devP.onclick = () => { close(); exportPagesUi(); };
       const devS = mbtn('🗂 Подразделы Авито'); devS.onclick = () => { close(); exportSubcatsUi(); };
       const rep = mbtn('📊 Файл для анализа пали'); rep.onclick = () => { close(); exportPalReportUi(); };
+      const feedX = mbtn(`🧾 Выгрузка ленты (${pendingItems().length})`); feedX.onclick = () => { close(); exportFeedUi(); };
       const ok = mbtn('Готово', true); ok.onclick = close;
       const keys = el('div', null, 'Клавиши в ленте (ПК): J / K — следующее / предыдущее, O или Enter — открыть, X — скрыть, F — отложить.');
       keys.style.cssText = 'color:#555;font-size:12px;margin-top:6px';
-      box.append(keys, probe, fastB, rep, devP, devS, ok);
+      box.append(keys, probe, fastB, feedX, rep, devP, devS, ok);
     });
   }
 
