@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Avito — скрыть продавцов + мои поиски
 // @namespace    avito-seller-blocker
-// @version      8.0
+// @version      8.1
 // @description  Скрытие продавцов, сохранённые поиски, стоп-слова, лента новых объявлений по всем поискам
 // @match        https://www.avito.ru/*
 // @match        https://m.avito.ru/*
@@ -1359,7 +1359,8 @@
 
   let feedRunning = false;
   const CONCURRENCY = 3;
-  const MAX_PAGES = 8; // дочитываем страницы, пока вся страница новая: группы по 7 брендов после перерыва набирают несколько
+  const CONCURRENCY_TEXT = 2; // «🔎 Слова»: ~190 поисков подряд часто упирались в паузу Авито (пользователь, 01.11) — медленнее, два потока и пауза 400–700 мс
+  const MAX_PAGES = 8; // дочитываем страницы, пока вся страница новая: группы брендов после перерыва набирают несколько
   const MAX_PAGES_RW = 15; // «⏪ За период»: до ~750 объявлений на поиск
   const LOCK_KEY = 'feedLock';        // чтобы две вкладки не проверяли одновременно
 
@@ -1575,7 +1576,7 @@
     // для вида поисков и потом изредка, примерно 1 из 20: ловит «правильно понятый» запрос с другой выборкой.
     const key = apiKeyOf(s), st = apiOk()[key], na = cs.noApi;
     const noApi = na && Date.now() - (na.at || 0) < (na.blk ? API_RETRY_BLK : API_RETRY);
-    const spec = st === 0 || noApi ? null : apiSpec(url);
+    const spec = st === 0 || noApi || S.apiOff ? null : apiSpec(url);
     if (spec) {
       try {
         const r = await fetch(itemsUrl(spec), { credentials: 'include' }), t = await r.text();
@@ -1584,9 +1585,10 @@
         if (j) {
           const bad = apiCheck(spec, j);
           if (bad.length) set('noApi', { why: bad.join('; ').slice(0, 300), at: Date.now() });
-          else { res = r; viaApi = true; cat = j.catalog; if (cs.noApi) set('noApi', null); }
+          else { res = r; viaApi = true; cat = j.catalog; S.apiBlkRow = 0; if (cs.noApi) set('noApi', null); }
         } else if ([403, 429, 439].includes(r.status) || /доступ ограничен|captcha/i.test(t.slice(0, 2000))) { // блок, а не другой формат: вид не выключаем
           set('noApi', { why: `JSON: Авито ответил ${r.status}${r.ok ? ', «доступ ограничен»' : ''}`, at: Date.now(), blk: 1 });
+          if (++S.apiBlkRow >= 3) S.apiOff = true; // три блока подряд — до конца этой проверки только страницы (01.11: JSON 439, страницы 200), не копим 439
         } else if (r.status === 404 || r.ok) apiSet(key, 0); // на этом сайте такого запроса нет (m.avito.ru?) — дальше страницами
       } catch { /* сеть — ниже обычная страница */ }
       if (viaApi && (st !== 1 || Math.random() < 0.05)) {
@@ -1733,7 +1735,7 @@
     const patches = new Map();
     const feed = loadFeed();
     const S = {
-      mem, feed, touched: new Set(), unhide: new Set(), skips: [], favs: loadFavs(), favPrice: new Map(), rewind: null,
+      mem, feed, touched: new Set(), unhide: new Set(), skips: [], favs: loadFavs(), favPrice: new Map(), rewind: null, apiBlkRow: 0, apiOff: false,
       patch: (id) => { if (!patches.has(id)) patches.set(id, { fields: {}, seenAdd: new Set(), seenDel: new Set() }); return patches.get(id); },
       flush() {
         if (S.touched.size) {
@@ -1780,7 +1782,7 @@
   // Чистим ленту от лишнего. Непросмотренные объявления НЕ трогаем (раньше обрезали всё подряд до 400 —
   // и после долгого перерыва большая часть новых пропадала). Режем только просмотренные и скрытые фильтрами.
   // номер версии кода: вкладка со старой версией, увидев более новую, перестаёт проверять в фоне
-  const CODE_VER = 80;
+  const CODE_VER = 81;
   if (+GM_getValue('codeVer', 0) < CODE_VER) GM_setValue('codeVer', CODE_VER);
   const PENDING_MAX = 5000; // аварийный потолок для непросмотренных
   function trimFeed(feed) {
@@ -1826,7 +1828,7 @@
     // проверка из открытой ленты при паузе Авито ждёт и продолжает сама; фоновая — просто останавливается
     const interactive = !!onProgress;
     const PAUSES = [60, 120, 180, 240];   // секунды ожидания; после 4-й паузы сдаёмся
-    let pauses = 0, pauseUntil = 0, maxWorkers = CONCURRENCY;
+    let pauses = 0, pauseUntil = 0, maxWorkers = mode === 'text' ? CONCURRENCY_TEXT : CONCURRENCY;
     let lockAt = 0;
     const report = () => {
       if (Date.now() - lockAt > 10000) { lockAt = Date.now(); GM_setValue(LOCK_KEY, String(lockAt)); } // «я ещё проверяю» — чтобы другие вкладки не начали параллельно
@@ -1874,7 +1876,7 @@
         done++;
         report();
         onPartial && onPartial();
-        if (queue.length) await sleep((maxWorkers === 1 ? 900 : 200) + Math.random() * 300);
+        if (queue.length) await sleep((maxWorkers === 1 ? 900 : mode === 'text' ? 400 : 200) + Math.random() * 300);
       }
     }
     try {
