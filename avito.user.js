@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Avito — скрыть продавцов + мои поиски
 // @namespace    avito-seller-blocker
-// @version      7.9
+// @version      8.0
 // @description  Скрытие продавцов, сохранённые поиски, стоп-слова, лента новых объявлений по всем поискам
 // @match        https://www.avito.ru/*
 // @match        https://m.avito.ru/*
@@ -1780,7 +1780,7 @@
   // Чистим ленту от лишнего. Непросмотренные объявления НЕ трогаем (раньше обрезали всё подряд до 400 —
   // и после долгого перерыва большая часть новых пропадала). Режем только просмотренные и скрытые фильтрами.
   // номер версии кода: вкладка со старой версией, увидев более новую, перестаёт проверять в фоне
-  const CODE_VER = 79;
+  const CODE_VER = 80;
   if (+GM_getValue('codeVer', 0) < CODE_VER) GM_setValue('codeVer', CODE_VER);
   const PENDING_MAX = 5000; // аварийный потолок для непросмотренных
   function trimFeed(feed) {
@@ -2961,6 +2961,10 @@
   const avfUnB64 = (s) => Uint8Array.from(atob(s.replace(/~/g, '+').replace(/_/g, '/').replace(/-/g, '=')), (c) => c.charCodeAt(0));
   const varint = (n) => { const o = []; do { let b = n % 128; n = Math.floor(n / 128); if (n) b |= 128; o.push(b); } while (n); return o; };
   function readVarint(b, i) { let n = 0, mul = 1, x; do { x = b[i++]; n += (x & 127) * mul; mul *= 128; } while (x & 128); return [n, i]; }
+  // Число значений в списке: до 14 — один байт (число·16 + 4), с 15 — байт 0xF4 и число. До v8.0 оно писалось как varint: с 8 значений
+  // выходило два байта, и Авито молча отбрасывал все фильтры, кроме раздела (страница 200). Отсюда взялся мнимый «лимит 7 брендов»:
+  // проверено 31.10 — 59 брендов работают и страницей, и JSON-ом.
+  const listHead = (n) => (n < 15 ? [n * 16 + 4] : [0xF4, ...varint(n)]);
 
   function avfParse(code) {
     const b = avfUnB64(code); let i = 6;
@@ -2972,8 +2976,9 @@
     if (hasMulti) {
       const m = b[i++]; if (b[i++] !== 0x40) throw new Error('формат');
       for (let k = 0; k < m; k++) {
-        let p, c; [p, i] = readVarint(b, i); [c, i] = readVarint(b, i);
-        const vals = []; for (let t = 0; t < (c - 4) / 16; t++) { let v; [v, i] = readVarint(b, i); vals.push(v / 2); }
+        let p, c; [p, i] = readVarint(b, i);
+        c = b[i++] >> 4; if (c === 15) [c, i] = readVarint(b, i); // см. listHead
+        const vals = []; for (let t = 0; t < c; t++) { let v; [v, i] = readVarint(b, i); vals.push(v / 2); }
         multi.push([p / 2, vals]);
       }
     }
@@ -2991,7 +2996,7 @@
     out.push(s.length, 0x44); for (const [p, v] of s) out.push(...varint(p * 2), ...varint(v * 2));
     if (multi.length) {
       const m = [...multi].sort((a, b) => a[0] - b[0]); out.push(m.length, 0x40);
-      for (const [p, vals] of m) { out.push(...varint(p * 2), ...varint(vals.length * 16 + 4)); vals.forEach((v) => out.push(...varint(v * 2))); }
+      for (const [p, vals] of m) { out.push(...varint(p * 2), ...listHead(vals.length)); vals.forEach((v) => out.push(...varint(v * 2))); }
     }
     if (js.length) {
       out.push(js.length, 0x45);
@@ -3854,19 +3859,21 @@
   }
   setTimeout(addMemo69, 5000);
   // v7.0 — меньше поисков (пользователь, 25.10): поиски по брендам с одинаковыми фильтрами (раздел целиком, те же размеры,
-  // цена, стоп-слова) складываем в группы до 7 кодов — лимит Авито. Поиск берём целиком (у Armani в одном поиске 6 кодов),
+  // цена, стоп-слова) складываем в группы. v8.0 (31.10) — до 20 кодов вместо 7: лимита Авито нет (см. listHead), а больше 20 незачем:
+  // на странице 50 объявлений, дочитываем до 8 страниц. Поиск берём целиком (у Armani в одном поиске 6 кодов),
   // поэтому название и коды не расходятся. Подразделы (джинсы), виды обуви, поиски по слову не трогаем.
   // Как у объединения поисков (runMerge): «просмотрено» — поровну от каждого, лента и журнал переходят к новому поиску;
   // дата «проверено до» — самая ранняя, чтобы не потерять то, что вышло между проверками старых поисков.
   const GROUP_LABEL = { '👕': 'Одежда', '👟': 'Обувь', '👞': 'Классика', '🕶': 'Аксессуары', '👜': 'Сумки' };
-  async function repack70() {
-    if (GM_getValue('plan70', '') || mergeRunning || feedRunning) return;
+  const GROUP_MAX = 20;
+  async function repack80() {
+    if (GM_getValue('plan80', '') || mergeRunning || feedRunning) return;
     const list = load(), buckets = new Map();
     for (const s of list) {
       const k = kindKeyOf(s), p = fOf(s.url);
       if (!KIND[k] || !p) continue;
       const u = new URL(s.url), ids = [...new Set(brandIdsOf(s.url))];
-      if (u.searchParams.get('q') || !ids.length || ids.length > 7) continue;
+      if (u.searchParams.get('q') || !ids.length || ids.length > GROUP_MAX) continue;
       const sec = catPath(k), base = pathHasBrand(s.url) ? u.pathname.slice(0, u.pathname.lastIndexOf('/')) : u.pathname;
       if (base !== sec && base !== sec.slice(0, sec.lastIndexOf('-'))) continue; // только раздел целиком
       const icon = (s.name.match(/^(👕|👟|👞|🕶|👜)/u) || [KIND[k].icon])[0];
@@ -3879,13 +3886,13 @@
     for (const b of buckets.values()) {
       const bins = [];
       for (const un of [...b.units].sort((x, y) => y.ids.length - x.ids.length)) { // первый подходящий, крупные первыми
-        const bin = bins.find((x) => x.n + un.ids.length <= 7);
+        const bin = bins.find((x) => x.n + un.ids.length <= GROUP_MAX);
         if (bin) { bin.units.push(un); bin.n += un.ids.length; } else bins.push({ units: [un], n: un.ids.length });
       }
       if (bins.length >= b.units.length) continue; // сократить нечего
       repl.push({ b, bins: bins.filter((x) => x.units.length > 1) });
     }
-    if (!repl.length) { GM_setValue('plan70', 'done:0'); return; }
+    if (!repl.length) { GM_setValue('plan80', 'done:0'); return; }
     await backupTick(true); // точка возврата: 🗂 Копии
     const feed = loadFeed(), skip = loadSkip(), idMap = {};
     const before = list.length;
@@ -3915,10 +3922,10 @@
     for (const it of Object.values(feed)) if (idMap[it.sid]) it.sid = idMap[it.sid];
     for (const sk of Object.values(skip)) if (idMap[sk.sid]) sk.sid = idMap[sk.sid];
     save(list); saveFeed(feed); GM_setValue(SKIP_KEY, JSON.stringify(skip));
-    GM_setValue('plan70', `done:${before}>${list.length}`);
-    toastMsg(`⭐ Поиски по брендам сложены в группы по 7: поисков было ${before}, стало ${list.length}. Копия — в «🗂 Копии».`);
+    GM_setValue('plan80', `done:${before}>${list.length}`);
+    toastMsg(`⭐ Поиски по брендам сложены в группы до ${GROUP_MAX}: поисков было ${before}, стало ${list.length}. Копия — в «🗂 Копии».`);
   }
-  setTimeout(repack70, 5500);
+  setTimeout(repack80, 5500);
   // Поиск одного бренда Авито отдаёт только по адресу с брендом в пути: …/dzhinsy/levi_sr-<код с брендом>, бренд
   // одиночным параметром и в f. Любой другой адрес (бренд в f без пути, бренд списком из одного) — пустая заготовка
   // без объявлений, а браузер потом сам переходит на адрес с брендом (скриншот пользователя 20.10: «Levi's — джинсы»).
