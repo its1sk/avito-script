@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Avito — скрыть продавцов + мои поиски
 // @namespace    avito-seller-blocker
-// @version      8.1
+// @version      8.2
 // @description  Скрытие продавцов, сохранённые поиски, стоп-слова, лента новых объявлений по всем поискам
 // @match        https://www.avito.ru/*
 // @match        https://m.avito.ru/*
@@ -468,8 +468,8 @@
   const mbtn = (text, primary) => { const b = el('button', 'ams-btn' + (primary ? ' primary' : ''), text); b.style.marginRight = '8px'; b.style.marginTop = '8px'; return b; };
 
   async function exportAll() {
-    // полная копия: поиски с отметками, стоп-слова, продавцы, лента
-    const data = { ...fullState(), copiedAt: Date.now() };
+    // полная копия: поиски с отметками, стоп-слова, продавцы, вся лента
+    const data = { ...fullState(true), copiedAt: Date.now() };
     const code = await encode(data);
     const summary = `Полная копия: поисков ${data.searches.length}, стоп-слов для всех ${data.global.length}, ` +
       `скрытых продавцов ${Object.keys(data.sellers).length}, объявлений в ленте ${Object.keys(data.feed).length}, отложенных ${Object.keys(data.favs).length}. ` +
@@ -556,7 +556,7 @@
     return g ? g.id : '';
   }
   async function ghUpload() {
-    const data = { ...fullState(), copiedAt: Date.now() };
+    const data = { ...fullState(true), copiedAt: Date.now() };
     const info = { at: data.copiedAt, from: /Mobi|Android/i.test(navigator.userAgent) ? 'телефон' : 'ПК',
       v: typeof GM_info !== 'undefined' ? GM_info.script.version : '?', searches: data.searches.length,
       sellers: Object.keys(data.sellers).length, feed: Object.keys(data.feed).length };
@@ -1782,7 +1782,7 @@
   // Чистим ленту от лишнего. Непросмотренные объявления НЕ трогаем (раньше обрезали всё подряд до 400 —
   // и после долгого перерыва большая часть новых пропадала). Режем только просмотренные и скрытые фильтрами.
   // номер версии кода: вкладка со старой версией, увидев более новую, перестаёт проверять в фоне
-  const CODE_VER = 81;
+  const CODE_VER = 82;
   if (+GM_getValue('codeVer', 0) < CODE_VER) GM_setValue('codeVer', CODE_VER);
   const PENDING_MAX = 5000; // аварийный потолок для непросмотренных
   function trimFeed(feed) {
@@ -3086,10 +3086,12 @@
   const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch { return false; } };
   const strHash = (str) => { let h = 0; for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) | 0; return h; };
 
-  function fullState() {
-    const searches = loadRO().map((x) => ({ ...x, seen: (x.seen || []).slice(0, BK_SEEN_N) }));
+  // all — перенос на другое устройство: вся лента и все отметки (до v8.2 непросмотренное сверх 100 при переносе терялось).
+  // Без all — копии в localStorage: там мало места, только 100 последних объявлений и 60 отметок у поиска.
+  function fullState(all = false) {
+    const searches = all ? loadRO() : loadRO().map((x) => ({ ...x, seen: (x.seen || []).slice(0, BK_SEEN_N) }));
     const feed = loadFeedRO();
-    const lastFeed = Object.fromEntries(Object.entries(feed).sort((a, b) => b[1].found - a[1].found).slice(0, BK_FEED_N));
+    const lastFeed = all ? feed : Object.fromEntries(Object.entries(feed).sort((a, b) => b[1].found - a[1].found).slice(0, BK_FEED_N));
     return { kind: 'ams-local', searches, global: loadGlobal(), sellers: loadSellers(), palOk: loadPalOk(), feed: lastFeed, feedMeta: loadMeta(), favs: loadFavRO() };
   }
 
